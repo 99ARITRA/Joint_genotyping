@@ -27,18 +27,18 @@ NC='\033[0m'
 ## INPUT DIR PATHS
 # ----------------------------------------------- #
 
-sampleFile=/mnt/d/GENESPECTRUM_BIOINFORMATICS/NGS/GENOMICS/Variant_calling/pipelines/bash/germline_samplesheet.csv # stores sample sample, sample type, paired end file paths
-refFasta=/mnt/d/GENESPECTRUM_BIOINFORMATICS/NGS/GENOMICS/ref_files/chr1120.fa # reference genome
-refIndex=/mnt/d/GENESPECTRUM_BIOINFORMATICS/NGS/GENOMICS/index/chr1120/chr1120  # reference genome index
-seqDict=/mnt/d/GENESPECTRUM_BIOINFORMATICS/NGS/GENOMICS/ref_files/chr1120.dict # sequence dictonary
-dbsnp=/mnt/d/GENESPECTRUM_BIOINFORMATICS/Files/vcf/chr1120_dbsnp138.vcf.gz # dbSNP annotations VCF file
+sampleFile=$PWD/germline_samplesheet.csv # stores sample sample, sample type, paired end file paths
+refFasta=$PWD/../../../../ref_files/chr1120.fa # reference genome
+refIndex=$PWD/../../../../index/chr1120/chr1120  # reference genome index
+seqDict=$PWD/../../../../ref_files/chr1120.dict # sequence dictonary
+dbsnp=$PWD/../../../../../../Files/vcf/chr1120_dbsnp138.vcf.gz # dbSNP annotations VCF file
 
 
 # ----------------------------------------------- #
 ## OUTPUR DIR PATHS
 # ----------------------------------------------- #
 
-output=/mnt/d/GENESPECTRUM_BIOINFORMATICS/NGS/GENOMICS/GERMLINE_OUTPUT
+output=$PWD/../GERMLINE_OUTPUT
 BAMdir=$output/BAMS
 BAMreports=$output/BAM_REPORT
 BQSRreports=$output/BQSR_REPORTS
@@ -51,13 +51,13 @@ temp=$output/TEMP # To be deleted at the end of the pipeline
 ## CHECK INPUT DIR PATHS AND FILES
 # ----------------------------------------------- #
 
-inputFiles=($sampleFile $refFasta $seqDict $dbsnpVCF)
+inputFiles=($sampleFile $refFasta $seqDict $dbsnp)
 for file in ${inputFiles[@]}; do
     if [[ ! -f $file ]]; then
-        echo -e "${BOLD_RED}>>>[FILE_NOT_FOUND_ERROR] $file is  not present${NC}"
+        echo -e "${BOLD_RED}>>>[FILE_NOT_FOUND_ERROR] $(realpath $file) is  not present${NC}"
         exit 1
     else
-        echo -e "${BOLD_CYAN}>>> $file exist${NC}"
+        echo -e "${BOLD_CYAN}>>> $(realpath $file) exist${NC}"
     fi
 done
 
@@ -90,14 +90,14 @@ LOGS() {
     $1 2>> $processLog
     echo -e "\n" >> $processLog
 }
-   
+# ----------------------------------------------- #   
 START_TIME() {
     traceLog=$logDir/trace.log
     st=$(date +%Y-%m-%d_%H:%M:%S)
     echo "$1 START TIME: $st"
     echo -e "$1\t$st" >>$traceLog
 }
-
+# ----------------------------------------------- #
 END_TIME() {
     et=$(date +%Y-%m-%d_%H:%M:%S)
     echo "$1 END TIME: $et"
@@ -124,18 +124,18 @@ BUILD_DIR() {
 # ----------------------------------------------- #
 
 ALIGNMENT() {
-    if [[ ! -f $BAMdir/${sample}_sort_1.bam || ! -f $BAMdir/${sample}_sort_3_rg_markdup_bqsr.bam ]]; then
+    if [[ ! -f $BAMdir/${sample}_mapped_sorted.bam || ! -f $BAMdir/${sample}_bqsr_sorted.bam ]]; then
         echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping ${NC}\n"
         START_TIME "BWA_MEM"
         bwa mem -t $threads $refIndex $fr $rr  > $BAMdir/${sample}.sam
         END_TIME "BWA_MEM"
         # --------------------------------------------------------------- #
         START_TIME "SAMTOOLS"
-        samtools view -@ $threads -F 0x4 -h  $BAMdir/${sample}.sam | samtools sort -@ $threads > $BAMdir/${sample}_sort_1.bam
+        samtools view -@ $threads -F 0x4 -h  $BAMdir/${sample}.sam | samtools sort -@ $threads > $BAMdir/${sample}_mapped_sorted.bam
         # --------------------------------------------------------------- #
-        samtools index -@ $threads $BAMdir/${sample}_sort_1.bam
+        samtools index -@ $threads $BAMdir/${sample}_mapped_sorted.bam
         # --------------------------------------------------------------- #
-        samtools stats -@ $threads $BAMdir/${sample}_sort_1.bam > $BAMreports/${sample}.bamstats
+        samtools flagstats -@ $threads $BAMdir/${sample}_mapped_sorted.bam > $BAMreports/${sample}_mapped.flagstats
         END_TIME "SAMTOOLS"
     else
         echo -e "${BOLD_RED}Skipping MAPPING step${NC}\n"
@@ -149,51 +149,51 @@ ALIGNMENT() {
 
 GATK_ARRG() {
     START_TIME "GATK_ARRG"
-    gatk AddOrReplaceReadGroups -I $BAMdir/${sample}_sort_1.bam -O $BAMdir/${sample}_sort_1_rg.bam \
-        --RGID $RGID  --RGPL $PLATFORM  --RGSM ${RGSM}  --RGPU ${RGPU} --RGLB ${RGLB}
+    gatk AddOrReplaceReadGroups -I $BAMdir/${sample}_mapped_sorted.bam -O $BAMdir/${sample}_rg.bam \
+        --RGID 10 --RGPL ILLUMINA  --RGSM ${sample}  --RGPU unit10 --RGLB lib10
     END_TIME "GATK_ARRG"
 }
 # ---------------------------------------------------------------------------------------- #
 GATK_MD() {
     START_TIME "GATK_MD"
-    gatk MarkDuplicates -I $BAMdir/${sample}_sort_1_rg.bam  -M $BAMdir/${sample}_dup_metrics.txt  \
-        -O $BAMdir/${sample}_sort_1_rg_markdup.bam --CREATE_INDEX True --REMOVE_DUPLICATES True
+    gatk MarkDuplicates -I $BAMdir/${sample}_rg.bam  -M $BAMdir/${sample}_dup_metrics.txt  \
+        -O $BAMdir/${sample}_rg_markdup.bam --CREATE_INDEX True --REMOVE_DUPLICATES True
     # ---------------------------------------------------------------------------------------- #
-    samtools sort -@ $threads $BAMdir/${sample}_sort_1_rg_markdup.bam > $BAMdir/${sample}_sort_2_rg_markdup.bam
+    samtools sort -@ $threads $BAMdir/${sample}_rg_markdup.bam > $BAMdir/${sample}_sorted_rg_markdup.bam
     # ---------------------------------------------------------------------------------------- #
-    samtools index -@ $threads $BAMdir/${sample}_sort_2_rg_markdup.bam
+    samtools index -@ $threads $BAMdir/${sample}_sorted_rg_markdup.bam
     # --------------------------------------------------------------- #
-    samtools stats -@ $threads $BAMdir/${sample}_sort_2_rg_markdup.bam > $BAMdir/${sample}_post-markdup.bamstats
+    samtools flagstats -@ $threads $BAMdir/${sample}_sorted_rg_markdup.bam > $BAMdir/${sample}_markdup.flagstats
     END_TIME "GATK_MD"
 }
 # ------------------------------------------------------------------------------- #
 GATK_BQSR() {
     START_TIME "GATK_BQSR"
-    gatk BaseRecalibrator -I $BAMdir/${sample}_sort_2_rg_markdup.bam \
+    gatk BaseRecalibrator -I $BAMdir/${sample}_sorted_rg_markdup.bam \
             --known-sites $dbsnp \
-            -O $BQSRreports/${sample}_BQSR.recalibration.table \
+            -O $BQSRreports/${sample}_BQSR_recalibration.table \
             -R $refFasta
      END_TIME "GATK_BQSR"
 }
 # ---------------------------------------------------------------------------------------- #
 GATK_APPLY_BQSR() {
     START_TIME "GATK_APPLY_BQSR"
-    gatk ApplyBQSR -R $refFasta -I $BAMdir/${sample}_sort_2_rg_markdup.bam \
-            --bqsr-recal-file $BQSRreports/${sample}_BQSR.recalibration.table \
-            -O $BAMdir/${sample}_sort_2_rg_markdup_bqsr.bam
+    gatk ApplyBQSR -R $refFasta -I $BAMdir/${sample}_sorted_rg_markdup.bam \
+            --bqsr-recal-file $BQSRreports/${sample}_BQSR_recalibration.table \
+            -O $BAMdir/${sample}_bqsr.bam
     # ---------------------------------------------------------------------------------------- #
-    samtools sort -@ $threads $BAMdir/${sample}_sort_2_rg_markdup_bqsr.bam > $BAMdir/${sample}_sort_3_rg_markdup_bqsr.bam
+    samtools sort -@ $threads $BAMdir/${sample}_bqsr.bam > $BAMdir/${sample}_sorted_bqsr.bam
     #  ---------------------------------------------------------------------------------------- #
-    samtools index -@ $threads $BAMdir/${sample}_sort_3_rg_markdup_bqsr.bam
+    samtools index -@ $threads $BAMdir/${sample}_sorted_bqsr.bam
     # --------------------------------------------------------------- #
-    samtools stats -@ $threads $BAMdir/${sample}_sort_3_rg_markdup_bqsr.bam > $BAMreports/${sample}_sort_3_rg_markdup_bqsr.bamstats
+    samtools flagstats -@ $threads $BAMdir/${sample}_sorted_bqsr.bam > $BAMreports/${sample}_sorted_bqsr.flagstats
     END_TIME "GATK_APPLY_BQSR"
     # --------------------------------------------------------------- #
 }
 
 
 BAM_PROCESSING() {
-    if [[ ! -f $BAMdir/${sample}_sort_2_rg_markdup.bam  || ! -f $BAMdir/${sample}_sort_3_rg_markdup_bqsr.bam ]]; then
+    if [[ ! -f $BAMdir/${sample}_sorted_rg_markdup.bam  || ! -f $BAMdir/${sample}_sorted_rg_markdup_bqsr.bam ]]; then
         echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation ${NC} \n"
         GATK_ARRG # GATK AddorReplaceReadGroups
         GATK_MD # GATK Markduplicates
@@ -210,13 +210,13 @@ BAM_PROCESSING() {
 
 TEMP_FILES() {
     mv $BAMdir/${sample}.sam $temp
-    mv $BAMdir/${sample}_sort_1.bam $temp
-    mv $BAMdir/${sample}_sort_1.bam.bai $temp
-    mv $BAMdir/${sample}_sort_1_rg.bam $temp
-    mv $BAMdir/${sample}_sort_2_rg.bam $temp
-    mv $BAMdir/${sample}_sort_2_rg_markdup.bam $temp
-    mv $BAMdir/${sample}_sort_2_rg_markdup.bam.bai $temp
-    mv $BAMdir/${sample}_sort_2_rg_markdup_bqsr.bam $temp
+    mv $BAMdir/${sample}_mapped_sorted.bam $temp
+    mv $BAMdir/${sample}_mapped_sorted.bam.bai $temp
+    mv $BAMdir/${sample}_mapped_sorted_rg.bam $temp
+    mv $BAMdir/${sample}_sorted_rg.bam $temp
+    mv $BAMdir/${sample}_sorted_rg_markdup.bam $temp
+    mv $BAMdir/${sample}_sorted_rg_markdup.bam.bai $temp
+    mv $BAMdir/${sample}_sorted_rg_markdup_bqsr.bam $temp
     mv $VCFdir/${sample}.vcf.gz $temp
     mv $VCFdir/${sample}.vcf.gz.tbi $temp    
     mv $VCFdir/${sample}_norm.vcf.gz $temp
@@ -237,16 +237,10 @@ PRE_VC() {
         sample=$SAMPLENAME
         fr=$R1
         rr=$R2
-        RGID=$RGID
-        RGSM=$SAMPLENAME
-        RGPU=$RGPU
-        RGLB=$RGLB
-        RGPL=$PLATFORM
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
         echo -e "${BOLD_PURPLE} GERMLINE SAMPLE: ${BOLD_GREEN}$sample ${NC}\n"
         echo -e "${BOLD_PURPLE} READ 1: ${BOLD_GREEN}$fr ${NC}\n"
         echo -e "${BOLD_PURPLE} READ 2: ${BOLD_GREEN}$rr ${NC}\n"
-        echo -e "${BOLD_PURPLE} SEQUENCING PLATFORM: ${BOLD_GREEN}$RGPL ${NC}\n"
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
 
         # ---------------------------------- #
@@ -268,24 +262,25 @@ PRE_VC() {
 ## STEP-3A: VARIANT CALLING USING HAPLOTYPECALLER
 # ----------------------------------------------- #
 GATK_HAPLOTYPECALLER() {
-    if [[ ! -f $VCFdir/${sample}_norm_ft.vcf.gz ]]; then
+    if [[ ! -f $VCFdir/${sample}_norm_ft_germline.vcf.gz ]]; then
         echo -e "${BOLD_YELLOW}>>> STEP 3 -->>> Germline Variant Calling ${NC}\n"
         START_TIME "GATK_HAPLOTYPECALLER"
+        read -p "Select the type of germline variant calling [Single / Joint genotyping]: " choice
         gatk HaplotypeCaller -R $refFasta \
-                    -I $BAMdir/${sample}_sort_3_rg_markdup_bqsr.bam \
-                    -O $VCFdir/${sample}.vcf
+                    -I $BAMdir/${sample}_sorted_bqsr.bam \
+                    -O $VCFdir/${sample}_germline.vcf
         # ----------------------------------------------- #
         # STEP-3B: NORMALIZE AND ADD TAGS TO VCF
         # ----------------------------------------------- #
-        bgzip -f --threads $threads $VCFdir/${sample}.vcf
+        bgzip -f --threads $threads $VCFdir/${sample}_germline.vcf
         # ----------------------------------------------- #
-        tabix -f --threads $threads -p vcf -0 $VCFdir/${sample}.vcf.gz
+        tabix -f --threads $threads -p vcf -0 $VCFdir/${sample}_germline.vcf.gz
          # ----------------------------------------------- #
-        bcftools norm --threads $threads -c w -f ${refFasta} -m-any -o $VCFdir/${sample}_norm.vcf.gz -Oz $VCFdir/${sample}.vcf.gz
+        bcftools norm --threads $threads -c w -f ${refFasta} -m-any -o $VCFdir/${sample}_norm_germline.vcf.gz -Oz $VCFdir/${sample}_germline.vcf.gz
         # ----------------------------------------------- #
-        bcftools +fill-tags --threads $threads -o $VCFdir/${sample}_norm_ft.vcf.gz -Oz $VCFdir/${sample}_norm.vcf.gz
+        bcftools +fill-tags --threads $threads -o $VCFdir/${sample}_norm_ft_germline.vcf.gz -Oz $VCFdir/${sample}_norm_germline.vcf.gz
         # ----------------------------------------------- #
-        tabix -f --threads $threads -p vcf -0 $VCFdir/${sample}_norm_ft.vcf.gz
+        tabix -f --threads $threads -p vcf -0 $VCFdir/${sample}_norm_ft_germline.vcf.gz
         END_TIME "GATK_HAPLOTYPECALLER"
     else
         echo -e "${BOLD_RED}Skipping GERMLINE Variant Calling step ${NC}\n"
@@ -301,11 +296,13 @@ GATK_VARIANT_FILTRATION() {
     START_TIME "GATK_VARIANT_FILTRATION"
     echo -e "${BOLD_YELLOW}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
     gatk VariantFiltration -R $refFasta -V $VCFdir/${sample}_norm_ft.vcf.gz -O $VCFdir/${sample}_norm_ft_filtered.vcf.gz \
-        --filter-expression  'QUAL < 30.0' --filter-name "Low_Variant_Quality" \
-        --filter-expression "MQ < 25.0" --filter-name "Low_Mapping_Quality" \
-        --filter-expression "QD < 30.0" --filter-name "Low_Quality_by_Depth" \
-        --filter-expression "DP < 1" --filter-name "Low_Read_Depth" \
-        --verbosity ERROR
+        --filter-expression  'QUAL < 20.0' --filter-name "Variant_Quality_Threshold" \
+        --filter-expression "MQ < 20.0" --filter-name "Mapping_Quality_Threshold" \
+        --filter-expression "QD < 2.0" --filter-name "QualByDepth_Threshold" \
+		--filter-expression "FS > 60.0" --filter-name "Fisher_Strand_Bias_Threshold" \
+		--filter-expression "SOR > 3.0" --filter-name "Strands_Odds_Ratio_Threshold" \
+		--filter-expression "MQRankSum < -12.5" --filter-name "MQRankSum_Threshold" \
+		--filter-expression "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum_Threshold"
     END_TIME "GATK_VARIANT_FILTRATION"
 }
 
@@ -316,7 +313,7 @@ GATK_VARIANT_FILTRATION() {
 GERMLINE() {
     NGS_ENV
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- "
-    echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}GERMLINE VARIANT ANALYSIS ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
+    echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}GERMLINE VARIANT CALLING ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"                                                     
     PRE_VC # Preprocessing before Variant calling
     LOGS "GATK_HAPLOTYPECALLER" # Somatic Variant calling

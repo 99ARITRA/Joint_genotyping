@@ -176,10 +176,10 @@ GATK_APPLY_BQSR() {
 BAM_PROCESSING() {
     if [[ ! -f $BAMdir/${sample}_deduplicated_sorted.bam  || ! -f $BAMdir/${sample}_bqsr_sorted.bam ]]; then
         echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation ${NC} \n"
-        GATK_ARRG # GATK AddorReplaceReadGroups
-        GATK_MD # GATK Markduplicates
-        GATK_BQSR # GATK BaseQualityScoreRecalibration
-        GATK_APPLY_BQSR # GATK ApplyBQSR
+        GATK_ARRG # Manipulate BAM records with sample read groups
+        GATK_MD # Mark and remove PCR and optical duplicates
+        GATK_BQSR # Generate BQSR table
+        GATK_APPLY_BQSR # Recalibrate Base quality scores
     else
         echo -e "${BOLD_RED}Skipping BAM PROCESSING step${NC}\n"
     fi
@@ -252,21 +252,35 @@ PRE_VC() {
 # ----------------------------------------------- #
 GATK_HAPLOTYPECALLER() {
     if [[ ! -f $VCFdir/${sample}_norm_ft.vcf.gz ]]; then
-        echo -e "${BOLD_YELLOW}>>> STEP 3 -->>> Germline Variant Calling ${NC}\n"
         START_TIME "GATK_HAPLOTYPECALLER"
         gatk HaplotypeCaller -R $refFasta \
                     -I $BAMdir/${sample}_bqsr_sorted.bam \
-                    -O $VCFdir/${sample}_germline.g.vcf
+                    -O $VCFdir/${sample}_germline.g.vcf.gz
                     -ERC GVCF
 }
 
-samples
 COMBINE_GVCFS() {
-    for GVCF in $VCFdir/*_germline.g.vcf
+    gvcfs=($VCFdir/*_germline.g.vcf)
+    # ----------------------------------------------- #
+    gatk CombineGVCFs -R $refFasta \
+                    -V gvcfs[0] \
+                    -V gvcfs[1] \
+                    -V gvcfs[2] \
+                    -O $VCFdir/germline_trio.g.vcf.gz
+}
+
+GENOTYPE_GVCFS() {
+    gatk GenotypeGVCFs -R $refFasta \
+                    -V $VCFdir/germline_trio.g.vcf.gz \
+                    -O $VCFdir/joint_genotyped_trio.vcf.gz
 
 }
 
 JOINT_GENOTYPING() {
+    echo -e "Step 3 -->>> Germline variant calling: Joint Genotyping"
+    GATK_HAPLOTYPECALLER # Call germline variants from each sample
+    COMBINE_GVCFS # Combine the sample VCFs
+    GENOTYPE_GVCFS # Combined VCF genotyping
 
 }
 NORMALIZE_VCF() {

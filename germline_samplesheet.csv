@@ -1,2 +1,4 @@
 samplename,R1,R2
-ERR243015,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/ERR243015_1.filt.fastq.gz,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/ERR243015_2.filt.fastq.gz
+father,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/father_R1.fastq.gz,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/father_R2.fastq.gz
+mother,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/mother_R1.fastq.gz,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/mother_R2.fastq.gz
+proband,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/proband_R1.fastq.gz,/mnt/d/Bioinformatics/NGS/GENOMICS/samples/germline/proband_R2.fastq.gz

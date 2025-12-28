@@ -152,7 +152,7 @@ GATK_BQSR() {
     START_TIME "GATK_BQSR"
     gatk BaseRecalibrator -I $bam_data/${sample}_deduplicated_sorted.bam \
             --known-sites $dbsnp \
-            -O $BQSRreports/${sample}_BQSR.recalibration.table \
+            -O $prep_reports/${sample}_BQSR.recalibration.table \
             -R $fasta
      END_TIME "GATK_BQSR"
 }
@@ -160,7 +160,7 @@ GATK_BQSR() {
 GATK_APPLY_BQSR() {
     START_TIME "GATK_APPLY_BQSR"
     gatk ApplyBQSR -R $fasta -I $bam_data/${sample}_deduplicated_sorted.bam \
-            --bqsr-recal-file $BQSRreports/${sample}_BQSR.recalibration.table \
+            --bqsr-recal-file $prep_reports/${sample}_BQSR.recalibration.table \
             -O $bam_data/${sample}_bqsr.bam
     # ---------------------------------------------------------------------------------------- #
     samtools sort -@ $threads $bam_data/${sample}_bqsr.bam > $bam_data/${sample}_bqsr_sorted.bam

@@ -243,30 +243,43 @@ PRE_VC() {
 ## STEP-3: JOINT GENOTYPING 
 # ----------------------------------------------- #
 GATK_HAPLOTYPECALLER() {
-    if [[ ! -f $vcf_data/${sample}_norm_ft.vcf.gz ]]; then
-        START_TIME "GATK_HAPLOTYPECALLER"
-        gatk HaplotypeCaller -R $fasta \
-                    -I $bam_data/${sample}_bqsr_sorted.bam \
-                    -O $vcf_data/${sample}_germline.g.vcf.gz \
-                    -ERC GVCF
-        END_TIME "GATK_HAPLOTYPECALLER"
-    fi
+    for bam in $(ls $bam_data/*_bqsr_sorted.bam); do
+        sample=$(basename $bam _bqsr_sorted.bam)
+        if [[ ! -f $vcf_data/joint_genotyped_trio.vcf.gz ]]; then
+            START_TIME "GATK_HAPLOTYPECALLER"
+            gatk HaplotypeCaller -R $fasta \
+                        -I $bam \
+                        -O $vcf_data/${sample}_germline.g.vcf.gz \
+                        -ERC GVCF
+            END_TIME "GATK_HAPLOTYPECALLER"
+        else
+            echo -e "${BOLD_RED} Germline variant calling done ${NC}"
+        fi
+    done
 }
 # ----------------------------------------------- #
 COMBINE_GVCFS() {
-    gvcfs=($vcf_data/*_germline.g.vcf)
+    gvcfs=( $vcf_data/*_germline.g.vcf.gz )
     # ----------------------------------------------- #
-    gatk CombineGVCFs -R $fasta \
-                    -V gvcfs[0] \
-                    -V gvcfs[1] \
-                    -V gvcfs[2] \
-                    -O $vcf_data/germline_trio.g.vcf.gz
+    if [[ ! -f $vcf_data/*.g.vcf.gz ]]; then
+        START_TIME "COMBINE_GVCFS"
+        gatk CombineGVCFs -R $fasta \
+                        -V ${gvcfs[0]} \
+                        -V ${gvcfs[1]} \
+                        -V ${gvcfs[2]} \
+                        -O $vcf_data/germline_trio.g.vcf.gz
+        END_TIME "COMBINE_GVCFS"
+    else
+        echo -e "${BOLD_RED} GVCFs have been already combined ${NC}"
+    fi
 }
 # ----------------------------------------------- #
 GENOTYPE_GVCFS() {
+    START_TIME "GENOTYPE_GVCFS"
     gatk GenotypeGVCFs -R $fasta \
                     -V $vcf_data/germline_trio.g.vcf.gz \
                     -O $vcf_data/joint_genotyped_trio.vcf.gz
+    END_TIME "GENOTYPE_GVCFS"
     # ----------------------------------------------- #
     gatk IndexFeatureFile -I $vcf_data/joint_genotyped_trio.vcf.gz
 }
@@ -285,7 +298,7 @@ NORMALIZE_VCF() {
 
 
 JOINT_GENOTYPING() {
-    echo -e "Step 3 -->>> Germline variant calling: Joint Genotyping"
+    echo -e "${BOLD_BLUE}Step 3 -->>> Germline variant calling: Joint Genotyping${NC}\n"
     GATK_HAPLOTYPECALLER # Call germline variants from each sample
     COMBINE_GVCFS # Combine the sample VCFs
     GENOTYPE_GVCFS # Combined VCF genotyping
@@ -298,13 +311,13 @@ JOINT_GENOTYPING() {
 # ----------------------------------------------- #
 # HARD FILTERS FOR HAPLOTYPECALLER OUTPUT
 GATK_VARIANT_FILTRATION() {
-    START_TIME "GATK_VARIANT_FILTRATION"
     echo -e "${BOLD_YELLOW}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
+    START_TIME "GATK_VARIANT_FILTRATION"
     gatk VariantFiltration -R $fasta -V $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz -O $vcf_data/joint_genotyped_trio_filtered.vcf.gz \
-        --filter-expression  'QUAL < 30.0' --filter-name "Low_Variant_Quality" \
-        --filter-expression "MQ < 25.0" --filter-name "Low_Mapping_Quality" \
+        --filter-expression  'QUAL < 100.0' --filter-name "Low_Variant_Quality" \
+        --filter-expression "MQ < 60.0" --filter-name "Low_Mapping_Quality" \
         --filter-expression "QD < 30.0" --filter-name "Low_Quality_by_Depth" \
-        --filter-expression "DP < 1" --filter-name "Low_Read_Depth" \
+        --filter-expression "DP < 30" --filter-name "Low_Read_Depth"
     END_TIME "GATK_VARIANT_FILTRATION"
 }
 
@@ -320,7 +333,7 @@ GERMLINE() {
     PRE_VC # Preprocessing before Variant calling
     LOGS "JOINT_GENOTYPING" # Somatic Variant calling
     LOGS "GATK_VARIANT_FILTRATION" # Somatic variant filtration
-    TEMP_FILES
+    # TEMP_FILES
     # ---------------------------------- #
 }
 

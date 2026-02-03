@@ -17,4 +17,6 @@ This is a project on joint genotyping using NGS tools on a father, mother and pr
   - BCFTOOLS FILLTAGS
 - VARIANT FILTRATION
   - GATK VARIANTFILTRATION
- 
+ ## Pipeline execution
+ To execute the bash script type the following commands in a linux terminal or WSL terminal:
+ `bash germline_VC.sh`

@@ -31,7 +31,7 @@ dbsnp="/mnt/d/Bioinformatics/NGS/GENOMICS/refs/process_files/chr8.dbsnp150.hg19.
 # ----------------------------------------------- #
 ## OUTPUR DIR PATHS
 # ----------------------------------------------- #
-output="/mnt/d/Bioinformatics/NGS/GENOMICS/OP_PROJECT"
+output="/mnt/d/Bioinformatics/NGS/GENOMICS/OP_PROJECT_v2"
 bam_data=$output/BAM_DATA
 prep_reports=$output/PREPROCESSING_REPORTS
 vcf_data=$output/VCF_DATA
@@ -73,21 +73,19 @@ threads=6
 # ----------------------------------------------- #
 LOGS() {
     processLog=$logs_dir/process.log
-    $1 2>> $processLog
+    $1 2>&1 | tee -a $processLog
     echo -e "\n" >> $processLog
 }
 # ----------------------------------------------- #   
 START_TIME() {
     traceLog=$logs_dir/trace.log
-    st=$(date +%d-%m-%Y_%H:%M:%S)
-    echo "$1 START TIME: $st"
-    echo -e "$1\t$st" >>$traceLog
+    st=$(date +%H:%M:%S)
+    echo "$1 START TIME: $st" >>$traceLog
 }
 # ----------------------------------------------- #
 END_TIME() {
-    et=$(date +%d-%m-%Y_%H:%M:%S)
-    echo "$1 END TIME: $et"
-    echo -e "$1\t$et" >>$traceLog
+    et=$(date +%H:%M:%S)
+    echo "$1 END TIME: $et" >>$traceLog
 }
 
 # ----------------------------------------------- #
@@ -105,20 +103,21 @@ BUILD_DIR() {
 # ----------------------------------------------- #
 ## STEP-1: MAPPING
 # ----------------------------------------------- #
-ALIGNMENT() {
-    if [[ ! -f $bam_data/${sample}_mapped_sorted.bam || ! -f $bam_data/${sample}_bqsr_sorted.bam ]]; then
-        echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping ${NC}\n"
-        START_TIME "BWA_MEM"
-        bwa mem -t $threads $index $fr $rr  > $bam_data/${sample}.sam
-        END_TIME "BWA_MEM"
+
+READ_ALIGNMENT() {
+    echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping ${NC}\n"
+    if [[ ! -f $bam_data/${sample}_mapped_sorted.bam || ! -f $bam_data/${sample}_bqsr.bam ]]; then
+        START_TIME "ALIGNMENT"
+        echo -e "${BOLD_YELLOW} Mapping to genome${NC}\n"
+        bwa mem -t $threads $index $fr $rr | samtools view -1 -@ $threads -h -b -S - | \
+        samtools sort -@ $threads -o $bam_data/${sample}_mapped_sorted.bam
+        END_TIME "ALIGNMENT"
         # --------------------------------------------------------------- #
-        START_TIME "SAMTOOLS"
-        samtools view -@ $threads -F 0x4 -h  $bam_data/${sample}.sam | samtools sort -@ $threads > $bam_data/${sample}_mapped_sorted.bam
-        # --------------------------------------------------------------- #
+        echo -e "${BOLD_YELLOW} Indexing BAM${NC}\n"
         samtools index -@ $threads $bam_data/${sample}_mapped_sorted.bam
         # --------------------------------------------------------------- #
-        samtools flagstats -@ $threads $bam_data/${sample}_mapped_sorted.bam > $BAMreports/${sample}_mapped.bam.stats
-        END_TIME "SAMTOOLS"
+        echo -e "${BOLD_YELLOW} Generating BAM stats${NC}\n"
+        samtools flagstats -@ $threads $bam_data/${sample}_mapped_sorted.bam > $prep_reports/${sample}_mapped.bam.stats
     else
         echo -e "${BOLD_RED}Skipping MAPPING step${NC}\n"
     fi
@@ -128,91 +127,63 @@ ALIGNMENT() {
 ## STEP-2: BAM PROCESSING
 # ----------------------------------------------- #
 
-GATK_ARRG() {
-    START_TIME "GATK_ARRG"
+READ_GROUPS_ADDITION() {
+    echo -e "${BOLD_CYAN} Adding Read Groups${NC}\n"
+    START_TIME "READ_GROUPS_ADDITION"
     gatk AddOrReplaceReadGroups -I $bam_data/${sample}_mapped_sorted.bam -O $bam_data/${sample}_rg.bam \
-        --RGID rg_${sample}   --RGPL illumina  --RGSM ${sample}  --RGPU unit_${sample} --RGLB lib_${sample}
-    END_TIME "GATK_ARRG"
+        --RGID rg_${sample}   --RGPL illumina  --RGSM ${sample}  --RGPU unit_${sample} --RGLB lib_${sample} -SO coordinate
+    END_TIME "READ_GROUPS_ADDITION"
 }
 # ---------------------------------------------------------------------------------------- #
-GATK_MD() {
-    START_TIME "GATK_MD"
+DEDUPLICATION() {
+    echo -e "${BOLD_CYAN} Mark and remove Duplicates${NC}\n"
+    START_TIME "DEDUPLICATION"
     gatk MarkDuplicates -I $bam_data/${sample}_rg.bam  -M $bam_data/${sample}_dup_metrics.txt  \
-        -O $bam_data/${sample}_deduplicated.bam --CREATE_INDEX True --REMOVE_DUPLICATES True
-    # ---------------------------------------------------------------------------------------- #
-    samtools sort -@ $threads $bam_data/${sample}_deduplicated.bam > $bam_data/${sample}_deduplicated_sorted.bam
-    # ---------------------------------------------------------------------------------------- #
-    samtools index -@ $threads $bam_data/${sample}_deduplicated_sorted.bam
+        -O $bam_data/${sample}_deduplicated.bam --CREATE_INDEX True
     # --------------------------------------------------------------- #
-    samtools stats -@ $threads $bam_data/${sample}_deduplicated_sorted.bam > $bam_data/${sample}_deduplicated.bam.stats
-    END_TIME "GATK_MD"
+    samtools flagstats -@ $threads $bam_data/${sample}_deduplicated.bam > $prep_reports/${sample}_deduplicated.bam.stats
+    END_TIME "DEDUPLICATION"
 }
 # ------------------------------------------------------------------------------- #
-GATK_BQSR() {
-    START_TIME "GATK_BQSR"
-    gatk BaseRecalibrator -I $bam_data/${sample}_deduplicated_sorted.bam \
+BASE_QUAL_SCORE_RECAL() {
+    echo -e "${BOLD_CYAN} Base Quality Score Recalibration Step 1${NC}\n"
+    START_TIME "BASE_QUAL_SCORE_RECAL"
+    gatk BaseRecalibrator -I $bam_data/${sample}_deduplicated.bam \
             --known-sites $dbsnp \
             -O $prep_reports/${sample}_BQSR.recalibration.table \
             -R $fasta
-     END_TIME "GATK_BQSR"
+     END_TIME "BASE_QUAL_SCORE_RECAL"
 }
 # ---------------------------------------------------------------------------------------- #
-GATK_APPLY_BQSR() {
-    START_TIME "GATK_APPLY_BQSR"
-    gatk ApplyBQSR -R $fasta -I $bam_data/${sample}_deduplicated_sorted.bam \
+BQSR_APPLY() {
+    echo -e "${BOLD_CYAN} Base Quality Score Recalibration Step 2${NC}\n"
+    START_TIME "BQSR_APPLY"
+    gatk ApplyBQSR -R $fasta -I $bam_data/${sample}_deduplicated.bam \
             --bqsr-recal-file $prep_reports/${sample}_BQSR.recalibration.table \
-            -O $bam_data/${sample}_bqsr.bam
-    # ---------------------------------------------------------------------------------------- #
-    samtools sort -@ $threads $bam_data/${sample}_bqsr.bam > $bam_data/${sample}_bqsr_sorted.bam
-    #  ---------------------------------------------------------------------------------------- #
-    samtools index -@ $threads $bam_data/${sample}_bqsr_sorted.bam
-    # --------------------------------------------------------------- #
-    samtools stats -@ $threads $bam_data/${sample}_bqsr_sorted.bam > $BAMreports/${sample}_bqsr.bam.stats
-    END_TIME "GATK_APPLY_BQSR"
+            -O $bam_data/${sample}_bqsr.bam -OBI
+    END_TIME "BQSR_APPLY"
     # --------------------------------------------------------------- #
 }
 
 
-BAM_PROCESSING() {
-    if [[ ! -f $bam_data/${sample}_deduplicated_sorted.bam  || ! -f $bam_data/${sample}_bqsr_sorted.bam ]]; then
-        echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation ${NC} \n"
-        GATK_ARRG # Manipulate BAM records with sample read groups
-        GATK_MD # Mark and remove PCR and optical duplicates
-        GATK_BQSR # Generate BQSR table
-        GATK_APPLY_BQSR # Recalibrate Base quality scores
+PROCESS_BAM() {
+    echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation ${NC} \n"
+    if [[ ! -f $bam_data/${sample}_deduplicated.bam  || ! -f $bam_data/${sample}_bqsr.bam ]]; then
+        READ_GROUPS_ADDITION # Manipulate BAM records with sample read groups
+        DEDUPLICATION # Mark and remove PCR and optical duplicates
+        BASE_QUAL_SCORE_RECAL # Generate BQSR table
+        BQSR_APPLY # Recalibrate Base quality scores
     else
         echo -e "${BOLD_RED}Skipping BAM PROCESSING step${NC}\n"
     fi
 }
 
-# --------------------------------------------------------- #
-## MOVE AND REMOVE THE TEMPORARY FILES
-# --------------------------------------------------------- #
-
-TEMP_FILES() {
-    mv $bam_data/${sample}.sam $temp
-    mv $bam_data/${sample}_mapped_sorted.bam $temp
-    mv $bam_data/${sample}_mapped_sorted.bam.bai $temp
-    mv $bam_data/${sample}_rg.bam $temp
-    mv $bam_data/${sample}_deduplicated_sorted.bam $temp
-    mv $bam_data/${sample}_deduplicated_sorted.bam.bai $temp
-    mv $bam_data/${sample}_bqsr.bam $temp
-    mv $vcf_data/${sample}_germline.vcf.gz $temp
-    mv $vcf_data/${sample}_germline.vcf.gz.tbi $temp    
-    mv $vcf_data/${sample}_germline_normalized.vcf.gz $temp
-    mv $vcf_data/${sample}_germline_normalized.vcf.gz.tbi $temp
-    mv $vcf_data/${sample}_germline_ft.vcf.gz $temp
-    mv $vcf_data/${sample}_germline_ft.vcf.gz.tbi $temp
-    # --------------------------------------------------------- #
-    rm -r $temp  
-}
-
 
 # --------------------------------------------------------------------------------------------------- #
-## RUN ITERATION THROUGH TUMOR AND NORMAL SAMPLES FROM MAPPING TO BAM PROCESSING
+## RUN ITERATION THROUGH MULTIPLE SAMPLES AND COLLECT METADATA
 # -------------------------------------------------------------------------------------------------- #
 
-PRE_VC() {
+NGS_PROCESSING() {
     sampleList=$(tail -n +2 $sample_sheet)
 
     for entry in $sampleList; do
@@ -223,8 +194,7 @@ PRE_VC() {
         
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
         echo -e "${BOLD_PURPLE} GERMLINE SAMPLE: ${BOLD_GREEN}$sample ${NC}\n"
-        echo -e "${BOLD_PURPLE} READ 1: ${BOLD_GREEN}$fr ${NC}\n"
-        echo -e "${BOLD_PURPLE} READ 2: ${BOLD_GREEN}$rr ${NC}\n"
+        echo -e "${BOLD_PURPLE} REFERENCE GENOME: ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
 
         # ---------------------------------- #
@@ -232,9 +202,9 @@ PRE_VC() {
         # ---------------------------------- #
         BUILD_DIR
         # ----------------------------------------------- #
-        LOGS "ALIGNMENT"
+        LOGS "READ_ALIGNMENT"
         # ----------------------------------------------- #
-        LOGS "BAM_PROCESSING"
+        LOGS "PROCESS_BAM"
     done
 }
 
@@ -242,10 +212,12 @@ PRE_VC() {
 # ----------------------------------------------- #
 ## STEP-3: JOINT GENOTYPING 
 # ----------------------------------------------- #
-GATK_HAPLOTYPECALLER() {
-    for bam in $(ls $bam_data/*_bqsr_sorted.bam); do
-        sample=$(basename $bam _bqsr_sorted.bam)
-        if [[ ! -f $vcf_data/joint_genotyped_trio.vcf.gz ]]; then
+
+GERMLINE_CALLER() {
+    for bam in $(ls $bam_data/*_bqsr.bam); do
+        sample=$(basename $bam _bqsr.bam)
+        if [[ ! -f $vcf_data/${sample}_germline.g.vcf.gz ]]; then
+            echo -e "${BOLD_YELLOW} Germline variant calling for $sample ${NC}\n"
             START_TIME "GATK_HAPLOTYPECALLER"
             gatk HaplotypeCaller -R $fasta \
                         -I $bam \
@@ -253,7 +225,7 @@ GATK_HAPLOTYPECALLER() {
                         -ERC GVCF
             END_TIME "GATK_HAPLOTYPECALLER"
         else
-            echo -e "${BOLD_RED} Germline variant calling done ${NC}"
+            echo -e "${BOLD_RED} Germline variant calling done for $sample ${NC}\n"
         fi
     done
 }
@@ -261,45 +233,56 @@ GATK_HAPLOTYPECALLER() {
 COMBINE_GVCFS() {
     gvcfs=( $vcf_data/*_germline.g.vcf.gz )
     # ----------------------------------------------- #
-    if [[ ! -f $vcf_data/*.g.vcf.gz ]]; then
-        START_TIME "COMBINE_GVCFS"
-        gatk CombineGVCFs -R $fasta \
-                        -V ${gvcfs[0]} \
-                        -V ${gvcfs[1]} \
-                        -V ${gvcfs[2]} \
-                        -O $vcf_data/germline_trio.g.vcf.gz
-        END_TIME "COMBINE_GVCFS"
-    else
-        echo -e "${BOLD_RED} GVCFs have been already combined ${NC}"
-    fi
+    echo -e "${BOLD_YELLOW} Combining GVCFs:\n ${BOLD_GREEN}$(ls $vcf_data/*.g.vcf.gz) ${NC} \n"
+    START_TIME "COMBINE_GVCFS"
+    gatk CombineGVCFs -R $fasta \
+                    -V ${gvcfs[0]} \
+                    -V ${gvcfs[1]} \
+                    -V ${gvcfs[2]} \
+                    -O $vcf_data/germline_trio.g.vcf.gz
+    END_TIME "COMBINE_GVCFS"
 }
 # ----------------------------------------------- #
 GENOTYPE_GVCFS() {
+    echo -e "${BOLD_YELLOW} Genotyping Trio VCF ${NC}\n"
     START_TIME "GENOTYPE_GVCFS"
     gatk GenotypeGVCFs -R $fasta \
                     -V $vcf_data/germline_trio.g.vcf.gz \
                     -O $vcf_data/joint_genotyped_trio.vcf.gz
-    END_TIME "GENOTYPE_GVCFS"
     # ----------------------------------------------- #
     gatk IndexFeatureFile -I $vcf_data/joint_genotyped_trio.vcf.gz
+    END_TIME "GENOTYPE_GVCFS"
 }
 # ----------------------------------------------- #
 NORMALIZE_VCF() {
         # ----------------------------------------------- #
         # STEP-3B: NORMALIZE AND ADD TAGS TO VCF
         # ----------------------------------------------- #
+    if [[ ! -f $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz ]]; then
+        echo -e "${BOLD_YELLOW} Processing Trio VCF ${NC}\n"
+        START_TIME "NORMALIZE_VCF"
         bcftools norm --threads $threads -c w -f ${fasta} -m-any -o $vcf_data/joint_genotyped_trio_normalized.vcf.gz -Oz $vcf_data/joint_genotyped_trio.vcf.gz
         # ----------------------------------------------- #
         bcftools +fill-tags --threads $threads -o $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz -Oz $vcf_data/joint_genotyped_trio_normalized.vcf.gz
         # ----------------------------------------------- #
         tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz
+        # ----------------------------------------------- #
+        echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+        count_vcf=$(bcftools view -H $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz | wc -l)
+        echo -e "${BOLD_GREEN}Genotyped variants: $count_vcf\n ${NC}"
+        echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
         END_TIME "NORMALIZE_VCF"
+    else
+        echo -e "${BOLD_RED} Genotyped GVCF is normalized ${NC}\n"
+    fi
 }    
 
 
 JOINT_GENOTYPING() {
-    echo -e "${BOLD_BLUE}Step 3 -->>> Germline variant calling: Joint Genotyping${NC}\n"
-    GATK_HAPLOTYPECALLER # Call germline variants from each sample
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+    echo -e "${BOLD_PURPLE}>>> Step 3 -->>> Joint Genotyping${NC}\n"
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+    GERMLINE_CALLER # Call germline variants from each sample
     COMBINE_GVCFS # Combine the sample VCFs
     GENOTYPE_GVCFS # Combined VCF genotyping
     NORMALIZE_VCF # VCF processing
@@ -310,33 +293,83 @@ JOINT_GENOTYPING() {
 ## STEP-4: VARIANT FILTRATION
 # ----------------------------------------------- #
 # HARD FILTERS FOR HAPLOTYPECALLER OUTPUT
-GATK_VARIANT_FILTRATION() {
-    echo -e "${BOLD_YELLOW}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
+HARD_FILTRATION() {
+    echo -e "${BOLD_CYAN} Filtering germline variants${NC}\n"
     START_TIME "GATK_VARIANT_FILTRATION"
-    gatk VariantFiltration -R $fasta -V $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz -O $vcf_data/joint_genotyped_trio_filtered.vcf.gz \
-        --filter-expression  'QUAL < 100.0' --filter-name "Low_Variant_Quality" \
+    gatk VariantFiltration -R $fasta -V $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz -O $vcf_data/joint_genotyped_flag_filters.vcf.gz \
+        --filter-expression  'FS > 60.0' --filter-name "High_Strand_Bias" \
         --filter-expression "MQ < 60.0" --filter-name "Low_Mapping_Quality" \
-        --filter-expression "QD < 30.0" --filter-name "Low_Quality_by_Depth" \
-        --filter-expression "DP < 30" --filter-name "Low_Read_Depth"
+        --filter-expression "QD < 1.0" --filter-name "Low_Quality_by_Depth" \
+        --filter-expression "MQRankSum < -10.0" --filter-name "Low_MQRankSum" \
+        --filter-expression "SOR > 1.0" --filter-name "High_Odds_Ratio" \
+        --filter-expression "ReadPosRankSum < -8.0" --filter-name "Low_Read_Depth" \
+        --filter-expression  'QUAL < 100.0' --filter-name "Low_Quality_Variant"
     END_TIME "GATK_VARIANT_FILTRATION"
 }
+# ----------------------------------------------- #
+SELECT_VARIANTS() {
+    echo -e "${BOLD_CYAN} Eliminating variants with low genotype quality${NC}\n"
+    START_TIME "SELECT_VARIANTS"
+    bcftools filter -i 'FILTER="PASS"' -o $vcf_data/joint_genotyped_passed.vcf.gz -Oz $vcf_data/joint_genotyped_flag_filters.vcf.gz
+    # ----------------------------------------------- #
+    bcftools filter -e 'GT="./."' -o $vcf_data/joint_genotyped_filtered.vcf.gz -Oz $vcf_data/joint_genotyped_passed.vcf.gz
+    # ----------------------------------------------- #
+    bcftools filter -e '(GT[2]="1/1" || GT[2]="0/0")' -o $vcf_data/joint_genotyped_het.vcf.gz -Oz $vcf_data/joint_genotyped_filtered.vcf.gz
+    # ----------------------------------------------- #
+    bcftools filter -i 'FMT/GQ>60' -o $vcf_data/joint_genotyped_het_high_qual.vcf.gz -Oz $vcf_data/joint_genotyped_het.vcf.gz
+    # ----------------------------------------------- #
+    tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_het_high_qual.vcf.gz
+    # ----------------------------------------------- #
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+    count_vcf=$(bcftools view -H $vcf_data/joint_genotyped_het_high_qual.vcf.gz | wc -l)
+    echo -e "${BOLD_GREEN}Filtered variants: $count_vcf\n ${NC}"
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+    END_TIME "SELECT_VARIANTS"
+}
+# ----------------------------------------------- #
+GERMLINE_FILTRATION() {
+    echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
+    GATK_VARIANT_FILTRATION # Applying Hard filters to germline variants
+    SELECT_VARIANTS # Filtering high quality variants
+
+}
+
+
+# --------------------------------------------------------- #
+## MOVE AND REMOVE THE TEMPORARY FILES
+# --------------------------------------------------------- #
+
+TEMP_FILES() {
+    mv $bam_data/${sample}_mapped_sorted.bam $temp
+    mv $bam_data/${sample}_mapped_sorted.bam.bai $temp
+    mv $bam_data/${sample}_rg.bam $temp
+    mv $bam_data/${sample}_deduplicated.bam $temp
+    mv $vcf_data/germline_trio.g.vcf.gz $temp
+    mv $vcf_data/joint_genotyped_trio.vcf.gz $temp
+    mv $vcf_data/joint_genotyped_trio_normalized.vcf.gz $temp
+
+    # --------------------------------------------------------- #
+    rm -r $temp  
+}
+
 
 # ------------------------------------------- #
 ## CREATE WORKFLOW AND RUN THE PIPELINE
 # ------------------------------------------- #
 
-GERMLINE() {
+JG_PIPELINE() {
     # NGS_ENV
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- "
-    echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}GERMLINE VARIANT ANALYSIS ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
+    echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}JOINT GENOTYPING PIPELINE ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"                                                     
-    PRE_VC # Preprocessing before Variant calling
+    NGS_PROCESSING # Preprocessing before Variant calling
     LOGS "JOINT_GENOTYPING" # Somatic Variant calling
-    LOGS "GATK_VARIANT_FILTRATION" # Somatic variant filtration
-    # TEMP_FILES
+    LOGS "GERMLINE_FILTRATION" # Somatic variant filtration
+    TEMP_FILES # Remove intermediate files
+    echo -e "${BOLD_RED} Intermediate files have been removed ${NC} \n"
     # ---------------------------------- #
 }
 
-GERMLINE
+JG_PIPELINE
 
 # EOF

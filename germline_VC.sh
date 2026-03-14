@@ -180,7 +180,7 @@ PROCESS_BAM() {
 
 
 # --------------------------------------------------------------------------------------------------- #
-## RUN ITERATION THROUGH MULTIPLE SAMPLES AND COLLECT METADATA
+## WORKFLOW-1: RUN ITERATION THROUGH MULTIPLE SAMPLES AND COLLECT METADATA
 # -------------------------------------------------------------------------------------------------- #
 
 NGS_PROCESSING() {
@@ -210,7 +210,7 @@ NGS_PROCESSING() {
 
 
 # ----------------------------------------------- #
-## STEP-3: JOINT GENOTYPING 
+## STEP-3: GERMLINE VARIANT CALLING 
 # ----------------------------------------------- #
 
 GERMLINE_CALLER() {
@@ -253,11 +253,12 @@ GENOTYPE_GVCFS() {
     gatk IndexFeatureFile -I $vcf_data/joint_genotyped_trio.vcf.gz
     END_TIME "GENOTYPE_GVCFS"
 }
+
+# ----------------------------------------------- #
+# STEP-4: NORMALIZE AND ADD TAGS TO VCF
 # ----------------------------------------------- #
 NORMALIZE_VCF() {
-        # ----------------------------------------------- #
-        # STEP-3B: NORMALIZE AND ADD TAGS TO VCF
-        # ----------------------------------------------- #
+        
     if [[ ! -f $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz ]]; then
         echo -e "${BOLD_YELLOW} Processing Trio VCF ${NC}\n"
         START_TIME "NORMALIZE_VCF"
@@ -278,6 +279,10 @@ NORMALIZE_VCF() {
 }    
 
 
+# --------------------------------------------------------------------------------------------------- #
+## WORKFLOW-2: JOINT GENOTYOING OF TRIO-SAMPLES
+# -------------------------------------------------------------------------------------------------- #
+
 JOINT_GENOTYPING() {
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
     echo -e "${BOLD_PURPLE}>>> Step 3 -->>> Joint Genotyping${NC}\n"
@@ -289,8 +294,9 @@ JOINT_GENOTYPING() {
 
 }
 
+
 # ----------------------------------------------- #
-## STEP-4: VARIANT FILTRATION
+## STEP-5: VARIANT FILTRATION
 # ----------------------------------------------- #
 # HARD FILTERS FOR HAPLOTYPECALLER OUTPUT
 HARD_FILTRATION() {
@@ -326,17 +332,9 @@ SELECT_VARIANTS() {
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
     END_TIME "SELECT_VARIANTS"
 }
-# ----------------------------------------------- #
-GERMLINE_FILTRATION() {
-    echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
-    GATK_VARIANT_FILTRATION # Applying Hard filters to germline variants
-    SELECT_VARIANTS # Filtering high quality variants
-
-}
-
 
 # --------------------------------------------------------- #
-## MOVE AND REMOVE THE TEMPORARY FILES
+## STEP-6: MOVE AND REMOVE THE TEMPORARY FILES
 # --------------------------------------------------------- #
 
 TEMP_FILES() {
@@ -353,19 +351,30 @@ TEMP_FILES() {
 }
 
 
-# ------------------------------------------- #
-## CREATE WORKFLOW AND RUN THE PIPELINE
-# ------------------------------------------- #
+## --------------------------------------------------------------------------------------------------- #
+## WORKFLOW-3: VARIANT FILTRATION
+# -------------------------------------------------------------------------------------------------- #
+
+GERMLINE_FILTRATION() {
+    echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
+    GATK_VARIANT_FILTRATION # Applying Hard filters to germline variants
+    SELECT_VARIANTS # Filtering high quality variants
+    TEMP_FILES # Remove intermediate files
+}
+
+
+# ------------------------------------------------------------------------------ #
+## MAIN WORKFLOW: EXECUTION OF WORKFLOW-1, WORKFLOW-2 AND WORKLFOW-3 FOR THE PIPELINE
+# ------------------------------------------------------------------------------ #
 
 JG_PIPELINE() {
     # NGS_ENV
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- "
     echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}JOINT GENOTYPING PIPELINE ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"                                                     
-    NGS_PROCESSING # Preprocessing before Variant calling
+    NGS_PROCESSING # Workflow-1: Preprocessing before Variant calling
     LOGS "JOINT_GENOTYPING" # Somatic Variant calling
     LOGS "GERMLINE_FILTRATION" # Somatic variant filtration
-    TEMP_FILES # Remove intermediate files
     echo -e "${BOLD_RED} Intermediate files have been removed ${NC} \n"
     # ---------------------------------- #
 }

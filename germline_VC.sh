@@ -46,12 +46,6 @@ CHECK_FILE() {
     fi
 }
 
-# ----------------------------------------------- #
-## PIPELINE PARAMETERS 
-# ----------------------------------------------- #
-# condaLocation=/home/aritra_palodhi/miniforge3/etc/profile.d/conda.sh
-# pipelineEnv=ngs
-threads=6
 
 # ----------------------------------------------- #
 ## LOG REPORTS
@@ -134,7 +128,7 @@ BASE_QUAL_SCORE_RECAL() {
     echo -e "${BOLD_CYAN} Base Quality Score Recalibration Step 1${NC}\n"
     START_TIME "BASE_QUAL_SCORE_RECAL"
     gatk BaseRecalibrator -I $bam_data/${sample}_deduplicated.bam \
-            --known-sites $dbsnp \
+            --known-sites $bqsr_ref \
             -O $prep_reports/${sample}_BQSR.recalibration.table \
             -R $fasta
      END_TIME "BASE_QUAL_SCORE_RECAL"
@@ -386,30 +380,36 @@ while [ $# -gt 0 ]; do
         sample_sheet=$1 # stores sample metadata
         shift
         ;;
-    --fasta)
+    --ref)
         shift
         fasta=$1 # fasta file required in analysis
         shift
-            ;;
-    --index)
+        ;;
+    --idx)
         shift
         index=$1 # genome index file requried in mapping step
         shift
-            ;;
+        ;;
     --bqsr_ref)
         shift
         bqsr_ref=$1 # Population VCF file requried in BQSR step
         shift
-            ;;
+        ;;
+    --cpus)
+        shift
+        threads=$1
+        shift
+        ;;
     * | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
                 > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --fasta <FASTA file> ] [ --index <genome index>] [ --bqsr_ref <Population VCF file>\n
                     PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
-                    --fasta : reference genome file in FASTA format
-                    --index : genome index file created from BWA
-                    --bqsr_ref: Population VCF file from dbSNP"
+                    --ref : reference genome file in FASTA format
+                    --idx : genome index file created from BWA
+                    --bqsr_ref : Population VCF file from dbSNP
+                    --threads : No. of CPUs to provide in process"
         exit 1
     esac
 done

@@ -3,11 +3,6 @@
 # This pipeline is meant to do germline variant calling, filtration and annotation
 
 # ----------------------------------------------- #
-## SOURCE MODULE SCRIPTS
-# ----------------------------------------------- #
-# source ./conda_env.sh
-
-# ----------------------------------------------- #
 ## TWEAKS 
 # ----------------------------------------------- #
 BOLD_RED='\033[1;31m'
@@ -19,19 +14,9 @@ BOLD_CYAN='\033[1;36m'
 NC='\033[0m'
 
 # ----------------------------------------------- #
-## INPUT DIR PATHS
-# ----------------------------------------------- #
-sample_sheet="/mnt/d/Bioinformatics/NGS/GENOMICS/pipelines/bash/germline/germline_samplesheet.csv" # stores sample metadata
-fasta="/mnt/d/Bioinformatics/NGS/GENOMICS/refs/genome/chr8.fa" # reference genome
-index="/mnt/d/Bioinformatics/NGS/GENOMICS/refs/index/chr8_hg19/chr8" # reference genome index
-dict="/mnt/d/Bioinformatics/NGS/GENOMICS/refs/genome/chr8.dict" # sequence dictonary
-dbsnp="/mnt/d/Bioinformatics/NGS/GENOMICS/refs/process_files/chr8.dbsnp150.hg19.vcf.gz" # dbSNP annotations VCF file
-
-
-# ----------------------------------------------- #
 ## OUTPUR DIR PATHS
 # ----------------------------------------------- #
-output="/mnt/d/Bioinformatics/NGS/GENOMICS/OP_PROJECT_v2"
+output="/mnt/d/Bioinformatics/NGS/GENOMICS/PROJECT_OUTPUT"
 bam_data=$output/BAM_DATA
 prep_reports=$output/PREPROCESSING_REPORTS
 vcf_data=$output/VCF_DATA
@@ -41,7 +26,7 @@ temp=$output/TEMP # To be deleted at the end of the pipeline
 # ----------------------------------------------- #
 ## CHECK INPUT DIR PATHS AND FILES
 # ----------------------------------------------- #
-inputFiles=($sample_sheet $fasta $dict $dbsnp)
+inputFiles=($sample_sheet $fasta $bqsr_ref)
 for file in ${inputFiles[@]}; do
     if [[ ! -f $file ]]; then
         echo -e "${BOLD_RED}>>>[FILE_NOT_FOUND_ERROR] $file is  not present${NC}"
@@ -187,14 +172,14 @@ NGS_PROCESSING() {
     sampleList=$(tail -n +2 $sample_sheet)
 
     for entry in $sampleList; do
-        IFS=',' read -r SAMPLENAME R1 R2 RGID RGPU RGLB PLATFORM <<< $entry
+        IFS=',' read -r SAMPLENAME R1 R2 <<< $entry
         sample=$SAMPLENAME
         fr=$R1
         rr=$R2
         
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-        echo -e "${BOLD_PURPLE} GERMLINE SAMPLE: ${BOLD_GREEN}$sample ${NC}\n"
-        echo -e "${BOLD_PURPLE} REFERENCE GENOME: ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
+        echo -e "${BOLD_PURPLE} GERMLINE SAMPLE  :  ${BOLD_GREEN}$sample ${NC}\n"
+        echo -e "${BOLD_PURPLE} REFERENCE GENOME :  ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
 
         # ---------------------------------- #
@@ -230,7 +215,7 @@ GERMLINE_CALLER() {
     done
 }
 # ----------------------------------------------- #
-COMBINE_GVCFS() {
+GVCFS_COMBINER() {
     gvcfs=( $vcf_data/*_germline.g.vcf.gz )
     # ----------------------------------------------- #
     echo -e "${BOLD_YELLOW} Combining GVCFs:\n ${BOLD_GREEN}$(ls $vcf_data/*.g.vcf.gz) ${NC} \n"
@@ -243,7 +228,7 @@ COMBINE_GVCFS() {
     END_TIME "COMBINE_GVCFS"
 }
 # ----------------------------------------------- #
-GENOTYPE_GVCFS() {
+GVCF_GENOTYPER() {
     echo -e "${BOLD_YELLOW} Genotyping Trio VCF ${NC}\n"
     START_TIME "GENOTYPE_GVCFS"
     gatk GenotypeGVCFs -R $fasta \
@@ -288,8 +273,8 @@ JOINT_GENOTYPING() {
     echo -e "${BOLD_PURPLE}>>> Step 3 -->>> Joint Genotyping${NC}\n"
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
     GERMLINE_CALLER # Call germline variants from each sample
-    COMBINE_GVCFS # Combine the sample VCFs
-    GENOTYPE_GVCFS # Combined VCF genotyping
+    GVCFS_COMBINER # Combine the sample VCFs
+    GVCF_GENOTYPER # Combined VCF genotyping
     NORMALIZE_VCF # VCF processing
 
 }
@@ -376,9 +361,62 @@ JG_PIPELINE() {
     LOGS "JOINT_GENOTYPING" # Somatic Variant calling
     LOGS "GERMLINE_FILTRATION" # Somatic variant filtration
     echo -e "${BOLD_RED} Intermediate files have been removed ${NC} \n"
-    # ---------------------------------- #
 }
 
+# ---------------------------------- #
+## CLI ARGUMENTS
+# --------------------------------- #
+
+if [ $# -eq 0 ]; then
+    echo -e "Please provide the following arguments
+            COMMAND............
+            > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --fasta <FASTA file> ] [ --index <genome index>] [ --bqsr_ref <Population VCF file>\n
+                 PIPELINE PARAMETERS:
+                 --samples : CSV file containing sample name,forward_fastq,reverse_fastq
+                 --fasta : reference genome file in FASTA format
+                 --index : genome index file created from BWA
+                --bqsr_ref: Population VCF file from dbSNP"
+    exit 1
+fi
+    
+while [ $# -gt 0 ]; do
+    case $1 in
+    --samples)
+        shift
+        sample_sheet=$1 # stores sample metadata
+        shift
+        ;;
+    --fasta)
+        shift
+        fasta=$1 # fasta file required in analysis
+        shift
+            ;;
+    --index)
+        shift
+        index=$1 # genome index file requried in mapping step
+        shift
+            ;;
+    --bqsr_ref)
+        shift
+        bqsr_ref=$1 # Population VCF file requried in BQSR step
+        shift
+            ;;
+    * | -h)
+        echo -e "Wrong argument entered........\n
+                COMMAND............
+                > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --fasta <FASTA file> ] [ --index <genome index>] [ --bqsr_ref <Population VCF file>\n
+                    PIPELINE PARAMETERS:
+                    --samples : CSV file containing sample name,forward_fastq,reverse_fastq
+                    --fasta : reference genome file in FASTA format
+                    --index : genome index file created from BWA
+                    --bqsr_ref: Population VCF file from dbSNP"
+        exit 1
+    esac
+done
+
+# ---------------------------------- #
+## INITIATE PIPELINE RUN
+# --------------------------------- #
 JG_PIPELINE
 
 # EOF

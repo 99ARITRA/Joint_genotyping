@@ -52,7 +52,7 @@ READ_ALIGNMENT() {
     echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
     if [[ ! -f $bam_data/${sample}_mapped_sorted.bam || ! -f $bam_data/${sample}_bqsr.bam ]]; then
         echo -e "${BOLD_YELLOW} Mapping to genome ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
-        bwa mem -t $threads $index $fr $rr | samtools view -1 -@ $threads -h -b -S - | \
+        bwa mem -v 2 -t $threads $index $fr $rr | samtools view -1 -@ $threads -h -b -S - | \
         samtools sort -@ $threads -o $bam_data/${sample}_mapped_sorted.bam
         # --------------------------------------------------------------- #
         echo -e "${BOLD_YELLOW} Indexing BAM${NC}\n"
@@ -72,13 +72,13 @@ READ_ALIGNMENT() {
 READ_GROUPS_ADDITION() {
     echo -e "${BOLD_CYAN} Adding Read Groups${NC}\n"
     gatk --java-options "-Xmx${memo}g" AddOrReplaceReadGroups -I $bam_data/${sample}_mapped_sorted.bam -O $bam_data/${sample}_rg.bam \
-        --RGID rg_${sample}   --RGPL illumina  --RGSM ${sample}  --RGPU unit_${sample} --RGLB lib_${sample} -SO coordinate
+        --RGID rg_${sample}   --RGPL illumina  --RGSM ${sample}  --RGPU unit_${sample} --RGLB lib_${sample} -SO coordinate --VERBOSITY ERROR
 }
 # ---------------------------------------------------------------------------------------- #
 DEDUPLICATION() {
     echo -e "${BOLD_CYAN} Mark and remove Duplicates${NC}\n"
     gatk --java-options "-Xmx${memo}g" MarkDuplicates -I $bam_data/${sample}_rg.bam  -M $bam_data/${sample}_dup_metrics.txt  \
-        -O $bam_data/${sample}_deduplicated.bam --CREATE_INDEX True
+        -O $bam_data/${sample}_deduplicated.bam --CREATE_INDEX True --VERBOSITY ERROR
     # --------------------------------------------------------------- #
     samtools flagstats -@ $threads $bam_data/${sample}_deduplicated.bam > $prep_reports/${sample}_deduplicated.bam.stats
 }
@@ -88,14 +88,14 @@ BASE_QUAL_SCORE_RECAL() {
     gatk --java-options "-Xmx${memo}g" BaseRecalibrator -I $bam_data/${sample}_deduplicated.bam \
             --known-sites $bqsr_ref \
             -O $prep_reports/${sample}_BQSR.recalibration.table \
-            -R $fasta
+            -R $fasta --verbosity ERROR
 }
 # ---------------------------------------------------------------------------------------- #
 BQSR_APPLY() {
     echo -e "${BOLD_CYAN} Base Quality Score Recalibration Step 2${NC}\n"
     gatk --java-options "-Xmx${memo}g" ApplyBQSR -R $fasta -I $bam_data/${sample}_deduplicated.bam \
             --bqsr-recal-file $prep_reports/${sample}_BQSR.recalibration.table \
-            -O $bam_data/${sample}_bqsr.bam -OBI
+            -O $bam_data/${sample}_bqsr.bam -OBI --verbosity ERROR
     # --------------------------------------------------------------- #
 }
 
@@ -154,7 +154,7 @@ GERMLINE_CALLER() {
             gatk --java-options "-Xmx${memo}g" HaplotypeCaller -R $fasta \
                         -I $bam \
                         -O $vcf_data/${sample}_germline.g.vcf.gz \
-                        -ERC GVCF
+                        -ERC GVCF --verbosity ERROR
         else
             echo -e "${BOLD_RED} Germline variant calling done for $sample ${NC}\n"
         fi
@@ -169,14 +169,14 @@ GVCFS_COMBINER() {
                     -V ${gvcfs[0]} \
                     -V ${gvcfs[1]} \
                     -V ${gvcfs[2]} \
-                    -O $vcf_data/germline_trio.g.vcf.gz
+                    -O $vcf_data/germline_trio.g.vcf.gz --verbosity ERROR
 }
 # ----------------------------------------------- #
 GVCF_GENOTYPER() {
     echo -e "${BOLD_YELLOW} Genotyping Trio VCF ${NC}\n"
     gatk --java-options "-Xmx${memo}g" GenotypeGVCFs -R $fasta \
                     -V $vcf_data/germline_trio.g.vcf.gz \
-                    -O $vcf_data/joint_genotyped_trio.vcf.gz
+                    -O $vcf_data/joint_genotyped_trio.vcf.gz --verbosity ERROR
     # ----------------------------------------------- #
     gatk --java-options "-Xmx${memo}g" IndexFeatureFile -I $vcf_data/joint_genotyped_trio.vcf.gz
 }
@@ -294,9 +294,9 @@ JG_PIPELINE() {
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- "
     echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}JOINT GENOTYPING PIPELINE ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"                                                     
-    NGS_PROCESSING # Workflow-1: Preprocessing before Variant calling
-    JOINT_GENOTYPING # Somatic Variant calling
-    GERMLINE_FILTRATION # Somatic variant filtration
+    LOGS "NGS_PROCESSING" # Workflow-1: Preprocessing before Variant calling
+    LOGS "JOINT_GENOTYPING" # Workflow-2: Joint Genotyping
+    LOGS "GERMLINE_FILTRATION" # Workflow-3: Germline Variant Filtration
     echo -e "${BOLD_RED} Intermediate files have been removed ${NC} \n"
 }
 

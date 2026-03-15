@@ -24,6 +24,13 @@ logs_dir=$output/LOG_FILES
 temp=$output/TEMP # To be deleted at the end of the pipeline
 
 # ----------------------------------------------- #
+## PIPELINE ENVIRONNMENT ACTIVATION
+# ----------------------------------------------- #
+CONDA_ACTIVATION() {
+    source $HOME/miniforge3/etc/profile.d/conda.sh
+    conda activate $conda_env
+}
+# ----------------------------------------------- #
 ## LOG REPORTS
 # ----------------------------------------------- #
 LOGS() {
@@ -77,8 +84,8 @@ READ_GROUPS_ADDITION() {
 # ---------------------------------------------------------------------------------------- #
 DEDUPLICATION() {
     echo -e "${BOLD_CYAN} Mark and remove Duplicates${NC}\n"
-    gatk --java-options "-Xmx${memo}g" MarkDuplicates -I $bam_data/${sample}_rg.bam  -M $bam_data/${sample}_dup_metrics.txt  \
-        -O $bam_data/${sample}_deduplicated.bam --CREATE_INDEX True --VERBOSITY ERROR
+    gatk --java-options "-Xmx${memo}g" MarkDuplicates -I $bam_data/${sample}_rg.bam  -M $prep_reports/${sample}_dup_metrics.txt  \
+        -O $bam_data/${sample}_deduplicated.bam --VERBOSITY ERROR
     # --------------------------------------------------------------- #
     samtools flagstats -@ $threads $bam_data/${sample}_deduplicated.bam > $prep_reports/${sample}_deduplicated.bam.stats
 }
@@ -97,6 +104,7 @@ BQSR_APPLY() {
             --bqsr-recal-file $prep_reports/${sample}_BQSR.recalibration.table \
             -O $bam_data/${sample}_bqsr.bam -OBI --verbosity ERROR
     # --------------------------------------------------------------- #
+    samtools flagstats -@ $threads $bam_data/${sample}_deduplicated.bam > $prep_reports/${sample}_bqsr.bam.stats
 }
 
 
@@ -196,7 +204,7 @@ NORMALIZE_VCF() {
         tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz
         # ----------------------------------------------- #
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-        count_vcf=$(bcftools view -H $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz | wc -l)
+        count_vcf=$(conda_exec bcftools view -H $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz | wc -l)
         echo -e "${BOLD_GREEN}Genotyped variants: $count_vcf\n ${NC}"
         echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
     else
@@ -260,10 +268,10 @@ SELECT_VARIANTS() {
 # --------------------------------------------------------- #
 
 TEMP_FILES() {
-    mv $bam_data/${sample}_mapped_sorted.bam $temp
-    mv $bam_data/${sample}_mapped_sorted.bam.bai $temp
-    mv $bam_data/${sample}_rg.bam $temp
-    mv $bam_data/${sample}_deduplicated.bam $temp
+    mv $bam_data/*_mapped_sorted.bam $temp
+    mv $bam_data/*_mapped_sorted.bam.bai $temp
+    mv $bam_data/*_rg.bam $temp
+    mv $bam_data/*_deduplicated.bam $temp
     mv $vcf_data/germline_trio.g.vcf.gz $temp
     mv $vcf_data/joint_genotyped_trio.vcf.gz $temp
     mv $vcf_data/joint_genotyped_trio_normalized.vcf.gz $temp
@@ -290,12 +298,11 @@ GERMLINE_FILTRATION() {
 # ------------------------------------------------------------------------------ #
 
 JG_PIPELINE() {
-    # NGS_ENV
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- "
     echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}JOINT GENOTYPING PIPELINE ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"                                                     
-    LOGS "NGS_PROCESSING" # Workflow-1: Preprocessing before Variant calling
-    LOGS "JOINT_GENOTYPING" # Workflow-2: Joint Genotyping
+    LOGS "NGS_PROCESSING" # Workflow-1: Preprocessing of NGS data
+    LOGS "JOINT_GENOTYPING" # Workflow-2: Joint Genotyping of three samples
     LOGS "GERMLINE_FILTRATION" # Workflow-3: Germline Variant Filtration
     echo -e "${BOLD_RED} Intermediate files have been removed ${NC} \n"
 }
@@ -309,10 +316,13 @@ if [ $# -eq 0 ]; then
             COMMAND............
             > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --fasta <FASTA file> ] [ --index <genome index>] [ --bqsr_ref <Population VCF file>\n
                  PIPELINE PARAMETERS:
-                 --samples : CSV file containing sample name,forward_fastq,reverse_fastq
-                 --fasta : reference genome file in FASTA format
-                 --index : genome index file created from BWA
-                --bqsr_ref: Population VCF file from dbSNP"
+                    --samples : CSV file containing sample name,forward_fastq,reverse_fastq
+                    --ref : reference genome file in FASTA format
+                    --idx : genome index file created from BWA
+                    --bqsr_ref : Population VCF file from dbSNP
+                    --cpus : No. of CPUs to provide in process
+                    --gatk_mem : Memory allocation for GATK tools
+                    --conda_env : Initiate the conda environment containing the tools"
     exit 1
 fi
     
@@ -348,17 +358,24 @@ while [ $# -gt 0 ]; do
         memo=$1 # Memory allocated for GATK Tools
         shift
         ;;
+    --conda_env)
+        shift
+        conda_env=$1
+        CONDA_ACTIVATION
+        shift
+        ;;
     * | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
-                > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] \n
+                > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] \n
                     PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
                     --idx : genome index file created from BWA
                     --bqsr_ref : Population VCF file from dbSNP
                     --cpus : No. of CPUs to provide in process
-                    --gatk_mem : Memory allocation for GATK tools"
+                    --gatk_mem : Memory allocation for GATK tools
+                    --conda_env : Activate the conda environment containing the tools"
         exit 1
     esac
 done

@@ -49,7 +49,7 @@ BUILD_DIR() {
 # ----------------------------------------------- #
 
 READ_ALIGNMENT() {
-    echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping ${NC}\n"
+    echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
     if [[ ! -f $bam_data/${sample}_mapped_sorted.bam || ! -f $bam_data/${sample}_bqsr.bam ]]; then
         echo -e "${BOLD_YELLOW} Mapping to genome ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
         bwa mem -t $threads $index $fr $rr | samtools view -1 -@ $threads -h -b -S - | \
@@ -101,7 +101,7 @@ BQSR_APPLY() {
 
 
 PROCESS_BAM() {
-    echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation ${NC} \n"
+    echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation  | SAMPLE: ${BOLD_PURPLE}$sample ${NC} \n"
     if [[ ! -f $bam_data/${sample}_deduplicated.bam  || ! -f $bam_data/${sample}_bqsr.bam ]]; then
         READ_GROUPS_ADDITION # Manipulate BAM records with sample read groups
         DEDUPLICATION # Mark and remove PCR and optical duplicates
@@ -118,9 +118,9 @@ PROCESS_BAM() {
 # ------------------------------------------------------------------------------------------------------------ #
 
 NGS_PROCESSING() {       
-    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-    echo -e "${BOLD_PURPLE} SAMPLE METADATA:"
-    echo -e "${BOLD_GREEN}  $(cat $sample_sheet)"
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}"
+    echo -e "${BOLD_PURPLE}SAMPLE METADATA:"
+    echo -e "${BOLD_GREEN}$(column -t -s "," $sample_sheet)"
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"    
     
     sampleList=$(tail -n +2 $sample_sheet)
@@ -150,7 +150,7 @@ GERMLINE_CALLER() {
     for bam in $(ls $bam_data/*_bqsr.bam); do
         sample=$(basename $bam _bqsr.bam)
         if [[ ! -f $vcf_data/${sample}_germline.g.vcf.gz ]]; then
-            echo -e "${BOLD_YELLOW} Germline variant calling for $sample ${NC}\n"
+            echo -e "${BOLD_YELLOW} Germline variant calling | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
             gatk --java-options "-Xmx${memo}g" HaplotypeCaller -R $fasta \
                         -I $bam \
                         -O $vcf_data/${sample}_germline.g.vcf.gz \

@@ -51,7 +51,7 @@ BUILD_DIR() {
 READ_ALIGNMENT() {
     echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping ${NC}\n"
     if [[ ! -f $bam_data/${sample}_mapped_sorted.bam || ! -f $bam_data/${sample}_bqsr.bam ]]; then
-        echo -e "${BOLD_YELLOW} Mapping to genome${NC}\n"
+        echo -e "${BOLD_YELLOW} Mapping to genome ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
         bwa mem -t $threads $index $fr $rr | samtools view -1 -@ $threads -h -b -S - | \
         samtools sort -@ $threads -o $bam_data/${sample}_mapped_sorted.bam
         # --------------------------------------------------------------- #
@@ -117,7 +117,12 @@ PROCESS_BAM() {
 ## WORKFLOW-1: RUN ITERATION THROUGH MULTIPLE SAMPLES AND COLLECT METADATA (ALIGNMENT + BAM PROCESSING)
 # ------------------------------------------------------------------------------------------------------------ #
 
-NGS_PROCESSING() {
+NGS_PROCESSING() {       
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+    echo -e "${BOLD_PURPLE} SAMPLE METADATA:"
+    echo -e "${BOLD_GREEN}  $(cat $sample_sheet)"
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"    
+    
     sampleList=$(tail -n +2 $sample_sheet)
 
     for entry in $sampleList; do
@@ -125,12 +130,6 @@ NGS_PROCESSING() {
         sample=$SAMPLENAME
         fr=$R1
         rr=$R2
-        
-        echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-        echo -e "${BOLD_PURPLE} GERMLINE SAMPLE  :  ${BOLD_GREEN}$sample ${NC}\n"
-        echo -e "${BOLD_PURPLE} REFERENCE GENOME :  ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
-        echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-
         # ---------------------------------- #
         ## PREPROCESSING PIPELINE
         # ---------------------------------- #

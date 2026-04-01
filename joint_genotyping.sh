@@ -14,15 +14,6 @@ BOLD_CYAN='\033[1;36m'
 NC='\033[0m'
 
 # ----------------------------------------------- #
-## OUTPUR DIR PATHS
-# ----------------------------------------------- #
-bam_data=$output/BAM_DATA
-prep_reports=$output/PREPROCESSING_REPORTS
-vcf_data=$output/VCF_DATA
-logs_dir=$output/LOG_FILES
-temp=$output/TEMP # To be deleted at the end of the pipeline
-
-# ----------------------------------------------- #
 ## PIPELINE ENVIRONNMENT ACTIVATION
 # ----------------------------------------------- #
 CONDA_ACTIVATION() {
@@ -42,6 +33,12 @@ LOGS() {
 ## CREATE THE OUTPUT DIRECTORIES
 # ----------------------------------------------- #
 BUILD_DIR() {
+    output=$results
+    bam_data=$output/BAM_DATA
+    prep_reports=$output/PREPROCESSING_REPORTS
+    vcf_data=$output/VCF_DATA
+    logs_dir=$output/LOG_FILES
+    temp=$output/TEMP # To be deleted at the end of the pipeline
     mkdir -p $output # Somatic variant calling reports and files output directory
     mkdir -p $bam_data # Storing BAM files
     mkdir -p $prep_reports # Storing preprocessing reports
@@ -56,16 +53,16 @@ BUILD_DIR() {
 
 READ_ALIGNMENT() {
     echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
-    if [[ ! -f $bam_data/${sample}_mapped_sorted.bam || ! -f $bam_data/${sample}_bqsr.bam ]]; then
+    if [[ ! -f $bam_data/${sample}_bqsr.bam ]]; then
         echo -e "${BOLD_YELLOW} Mapping to genome ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
-        bwa-mem2 mem -v 1 -t $threads $index $fr $rr | samtools view -1 -@ $threads -h -b -S - | \
-        samtools sort -@ $threads -o $bam_data/${sample}_mapped_sorted.bam
+        bwa-mem2 mem -v 1 -t $threads $index $fr $rr | sambamba view -S -f bam -l 0 -t $threads -p /dev/stdin | \
+        sambamba sort -m 450MB -t $threads -l 0 -p -o $bam_data/${sample}_mapped_sorted.bam /dev/stdin
         # --------------------------------------------------------------- #
         echo -e "${BOLD_YELLOW} Indexing BAM${NC}\n"
-        samtools index -@ $threads $bam_data/${sample}_mapped_sorted.bam
+        sambamba index -t $threads -p $bam_data/${sample}_mapped_sorted.bam
         # --------------------------------------------------------------- #
         echo -e "${BOLD_YELLOW} Generating BAM stats${NC}\n"
-        samtools flagstats -@ $threads $bam_data/${sample}_mapped_sorted.bam > $prep_reports/${sample}_mapped.bam.stats
+        sambamba flagstat -t $threads -p $bam_data/${sample}_mapped_sorted.bam > $prep_reports/${sample}_mapped.bam.stats
     else
         echo -e "${BOLD_RED}Skipping MAPPING step${NC}\n"
     fi
@@ -83,13 +80,12 @@ READ_GROUPS_ADDITION() {
 # ---------------------------------------------------------------------------------------- #
 DEDUPLICATION() {
     echo -e "${BOLD_CYAN} Mark and remove Duplicates${NC}\n"
-    sambamba-markdup -r -t $threads -p $bam_data/${sample}_rg.bam $bam_data/${sample}_deduplicated.bam
-    # --------------------------------------------------------------- #
-    sambamba-sort -m 450MB -t $threads -p -o $bam_data/${sample}_deduplicated_sorted.bam $bam_data/${sample}_deduplicated.bam
+    sambamba markdup -r -t $threads -p $bam_data/${sample}_rg.bam /dev/stdout | \
+    sambamba sort -m 450MB -t $threads -l 9 -p -o $bam_data/${sample}_deduplicated_sorted.bam /dev/stdin
     # --------------------------------------------------------------- #    
-    sambamba-index -t $threads -p $bam_data/${sample}_deduplicated_sorted.bam  $bam_data/${sample}_deduplicated_sorted.bam.bai
+    sambamba index -t $threads -p $bam_data/${sample}_deduplicated_sorted.bam
     # --------------------------------------------------------------- #
-    sambamba-flagstat -t $threads -p $bam_data/${sample}_deduplicated_sorted.bam > $prep_reports/${sample}_deduplicated.bam.stats
+    sambamba flagstat -t $threads -p $bam_data/${sample}_deduplicated_sorted.bam > $prep_reports/${sample}_deduplicated.bam.stats
 }
 # ------------------------------------------------------------------------------- #
 BASE_QUAL_SCORE_RECAL_1() {
@@ -106,13 +102,13 @@ BASE_QUAL_SCORE_RECAL_2() {
             --bqsr-recal-file $prep_reports/${sample}_BQSR.recalibration.table \
             -O $bam_data/${sample}_bqsr.bam -OBI --verbosity ERROR
     # --------------------------------------------------------------- #
-    samtools flagstats -@ $bam_data/${sample}_bqsr.bam > $prep_reports/${sample}_bqsr.bam.stats
+    sambamba flagstat -t $threads $bam_data/${sample}_bqsr.bam > $prep_reports/${sample}_bqsr.bam.stats
 }
 
 
 PROCESS_BAM() {
     echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation  | SAMPLE: ${BOLD_PURPLE}$sample ${NC} \n"
-    if [[ ! -f $bam_data/${sample}_deduplicated.bam  || ! -f $bam_data/${sample}_bqsr.bam ]]; then
+    if [[ ! -f $bam_data/${sample}_bqsr.bam ]]; then
         READ_GROUPS_ADDITION # Manipulate BAM records with sample read groups
         DEDUPLICATION # Mark and remove PCR and optical duplicates
         BASE_QUAL_SCORE_RECAL_1 # Generate BQSR table
@@ -157,15 +153,11 @@ NGS_PROCESSING() {
 GERMLINE_CALLER() {
     for bam in $(ls $bam_data/*_bqsr.bam); do
         sample=$(basename $bam _bqsr.bam)
-        if [[ ! -f $vcf_data/${sample}_germline.g.vcf.gz ]]; then
-            echo -e "${BOLD_YELLOW} Germline variant calling | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
-            gatk --java-options "-Xmx${memo}g" HaplotypeCaller -R $fasta \
-                        -I $bam \
-                        -O $vcf_data/${sample}_germline.g.vcf.gz \
-                        -ERC GVCF --verbosity ERROR
-        else
-            echo -e "${BOLD_RED} Germline variant calling done for $sample ${NC}\n"
-        fi
+        echo -e "${BOLD_YELLOW} Germline variant calling | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
+        gatk --java-options "-Xmx${memo}g" HaplotypeCaller -R $fasta \
+                    -I $bam \
+                    -O $vcf_data/${sample}_germline.g.vcf.gz \
+                    -ERC GVCF --verbosity ERROR
     done
 }
 # ----------------------------------------------- #
@@ -194,21 +186,17 @@ GVCF_GENOTYPER() {
 # ----------------------------------------------- #
 
 NORMALIZE_VCF() {
-    if [[ ! -f $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz ]]; then
-        echo -e "${BOLD_YELLOW} Processing Trio VCF ${NC}\n"
-        bcftools norm --threads $threads -c w -f ${fasta} -m-any -o $vcf_data/joint_genotyped_trio_normalized.vcf.gz -Oz $vcf_data/joint_genotyped_trio.vcf.gz
-        # ----------------------------------------------- #
-        bcftools +fill-tags --threads $threads -o $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz -Oz $vcf_data/joint_genotyped_trio_normalized.vcf.gz
-        # ----------------------------------------------- #
-        tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz
-        # ----------------------------------------------- #
-        echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-        count_vcf=$(bcftools view -H $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz | wc -l)
-        echo -e "${BOLD_GREEN}Genotyped variants: $count_vcf\n ${NC}"
-        echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-    else
-        echo -e "${BOLD_RED} Genotyped GVCF is normalized ${NC}\n"
-    fi
+    echo -e "${BOLD_YELLOW} Processing Trio VCF ${NC}\n"
+    bcftools norm --threads $threads -c w -f ${fasta} -m-any -o $vcf_data/joint_genotyped_trio_normalized.vcf.gz -Oz $vcf_data/joint_genotyped_trio.vcf.gz
+    # ----------------------------------------------- #
+    bcftools +fill-tags --threads $threads -o $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz -Oz $vcf_data/joint_genotyped_trio_normalized.vcf.gz
+    # ----------------------------------------------- #
+    tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz
+    # ----------------------------------------------- #
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
+    count_vcf=$(bcftools view -H $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz | wc -l)
+    echo -e "${BOLD_GREEN}Genotyped variants: $count_vcf\n ${NC}"
+    echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
 }    
 
 
@@ -220,11 +208,14 @@ JOINT_GENOTYPING() {
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
     echo -e "${BOLD_PURPLE}>>> Step 3 -->>> Joint Genotyping${NC}\n"
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
-    GERMLINE_CALLER # Call germline variants from each sample
-    GVCFS_COMBINER # Combine the sample VCFs
-    GVCF_GENOTYPER # Combined VCF genotyping
-    NORMALIZE_VCF # VCF processing
-
+    if [[ ! -f $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz ]]; then
+        GERMLINE_CALLER # Call germline variants from each sample
+        GVCFS_COMBINER # Combine the sample VCFs
+        GVCF_GENOTYPER # Combined VCF genotyping
+        NORMALIZE_VCF # VCF processing
+    else
+        echo -e "${BOLD_RED} Genotyped GVCF is normalized ${NC}\n"
+    fi
 }
 
 
@@ -236,17 +227,17 @@ FILTER_VCF() {
     echo -e "${BOLD_CYAN} Filtering out germline variants with low depth, low genotype quality and low quality-by-depth${NC}\n"
     gatk --java-options "-Xmx${memo}g" FilterVcf -R $fasta -I $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz \
                                             -O $vcf_data/joint_genotyped_flagged.vcf.gz \
-                                            --MIN_DP 30.0 \
-                                            --MIN_QD 1.0 \
-                                            --MIN_GQ 60.0 \
+                                            --MIN_DP 40 \
+                                            --MIN_QD 2 \
+                                            --MIN_GQ 60 \
                                             --VERBOSITY ERROR
 }
 # ----------------------------------------------- #
 SELECT_VARIANTS() {
     echo -e "${BOLD_CYAN} Eliminating variants with low variant quality, mapping quality${NC}\n"
-    bcftools filter -i 'FILTER="PASS" && QUAL>30 && INFO/MQ>60' -o $vcf_data/joint_genotyped_first_pass.vcf.gz -Oz $vcf_data/joint_genotyped_flagged.vcf.gz
+    bcftools filter -i 'FILTER="PASS" && QUAL>60 && INFO/MQ>40' -o $vcf_data/joint_genotyped_first_pass.vcf.gz -Oz $vcf_data/joint_genotyped_flagged.vcf.gz
     # ----------------------------------------------- #
-    bcftools filter -e 'FMT/GT[0]=="mis" && FMT/GT[1]=="mis" && FMT/GT[2]=="mis"' -o $vcf_data/joint_genotyped_second_pass.vcf.gz -Oz $vcf_data/joint_genotyped_first_pass.vcf.gz
+    bcftools filter -e '(FORMAT/GT[0]="hom" | FORMAT/GT[0]="mis") || FORMAT/GT[1]="mis" || FORMAT/GT[2]="mis"' -o $vcf_data/joint_genotyped_second_pass.vcf.gz -Oz $vcf_data/joint_genotyped_first_pass.vcf.gz
     # ----------------------------------------------- #
     tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_second_pass.vcf.gz
     # ----------------------------------------------- #
@@ -274,13 +265,10 @@ TABULATION() {
 TEMP_FILES() {
     mv $bam_data/*_mapped_sorted.bam* $temp
     mv $bam_data/*_rg.bam $temp
-    mv $bam_data/*_deduplicated.bam $temp
     mv $bam_data/*_deduplicated_sorted.bam* $temp
     mv $vcf_data/*_germline.g.vcf.gz* $temp
     mv $vcf_data/germline_trio.g.vcf.gz* $temp
     mv $vcf_data/joint_genotyped_trio.vcf.gz* $temp
-    mv $vcf_data/joint_genotyped_trio_normalized.vcf.gz $temp
-    mv $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz $temp
     mv $vcf_data/joint_genotyped_first_pass.vcf.gz $temp      
     # --------------------------------------------------------- #
     rm -r $temp  
@@ -295,6 +283,7 @@ GERMLINE_FILTRATION() {
     echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
     FILTER_VCF # Applying Hard filters to germline variants
     SELECT_VARIANTS # Filtering high quality variants
+    TABULATION # Create table from VCF file
     TEMP_FILES # Remove intermediate files
 }
 
@@ -306,7 +295,8 @@ GERMLINE_FILTRATION() {
 JG_PIPELINE() {
     echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- "
     echo -e "<<<${BOLD_BLUE}      ${BOLD_PURPLE}* * * ${BOLD_YELLOW}JOINT GENOTYPING PIPELINE ${BOLD_PURPLE}* * *         ${BOLD_BLUE}>>>"
-    echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"                                                     
+    echo -e "${BOLD_BLUE}-------------------------------------------------------------------------------------------- ${NC}"    
+    BUILD_DIR # Create directories for storing results                                                 
     LOGS "NGS_PROCESSING" # Workflow-1: Preprocessing of NGS data
     LOGS "JOINT_GENOTYPING" # Workflow-2: Joint Genotyping of three samples
     LOGS "GERMLINE_FILTRATION" # Workflow-3: Germline Variant Filtration
@@ -320,7 +310,7 @@ JG_PIPELINE() {
 if [ $# -eq 0 ]; then
     echo -e "Please provide the following arguments
             COMMAND............
-            > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --fasta <FASTA file> ] [ --index <genome index>] [ --bqsr_ref <Population VCF file>\n
+            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] [ --output <output directory>\n
                  PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
@@ -373,14 +363,13 @@ while [ $# -gt 0 ]; do
         ;;
     --output)
         shift
-        output=$1
-        BUILD_DIR
+        results=$1
         shift
         ;;
     * | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
-                > bash germline_VC.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] [ --output <output directory>\n
+                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] [ --output <output directory>\n
                     PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format

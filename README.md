@@ -28,7 +28,7 @@ This is a project on joint genotyping using NGS tools on a father, mother and pr
   3. Run `./Miniforge3-Linux-x86_64.sh`
   4. Set up the conda environment.
   5. Create a new conda environment ` conda create -n < envname > `
-  6. Install the tools ` mamba install bwa-mem samtools gatk4 bcftools `
+  6. Install the tools `mamba install bwa-mem samtools gatk4 bcftools sambamba bwa-mem2`
   7. Download the repo ` git clone https://github.com/99ARITRA/Joint_genotyping.git `
   8. Navigate to the directory in terminal and run the script as shown below.
 

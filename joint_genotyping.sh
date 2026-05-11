@@ -55,8 +55,9 @@ READ_ALIGNMENT() {
     echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
     if [[ ! -f $bam_data/${sample}_bqsr.bam ]]; then
         echo -e "${BOLD_YELLOW} Mapping to genome ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
-        bwa-mem2 mem -v 1 -t $threads $index $fr $rr | sambamba view -S -f bam -l 0 -t $threads -p /dev/stdin | \
-        sambamba sort -m 450MB -t $threads -l 0 -p -o $bam_data/${sample}_mapped_sorted.bam /dev/stdin
+
+        bwa-mem2 mem -v 1 -t $threads $index { } { } | sambamba view -S -f bam -l 0 -t $threads -p /dev/stdin | \
+        sambamba sort -m 450MB -t $threads -l 0 -p -o $bam_data/${.}_mapped_sorted.bam /dev/stdin
         # --------------------------------------------------------------- #
         echo -e "${BOLD_YELLOW} Indexing BAM${NC}\n"
         sambamba index -t $threads -p $bam_data/${sample}_mapped_sorted.bam
@@ -248,7 +249,7 @@ SELECT_VARIANTS() {
 }
 
 # ----------------------------------------------- #
-## STEP-6: VARIANT FILTRATION
+## STEP-6: VARIANT ANNOTATION
 # ----------------------------------------------- #
 # CONVERTING VCF TO TSV FORMAT
 TABULATION() {
@@ -256,6 +257,10 @@ TABULATION() {
     gatk --java-options "-Xmx${memo}g" VariantsToTable -V $vcf_data/joint_genotyped_second_pass.vcf.gz \
                                                     -O $vcf_data/High-confidence_variants.tsv \
                                                     -F CHROM -F POS -F REF -F ALT -GF GT
+}
+# ---------------------------------------------------- #
+FUNCOTATOR() {
+    echo -e ""
 }
 
 # --------------------------------------------------------- #
@@ -366,7 +371,7 @@ while [ $# -gt 0 ]; do
         results=$1
         shift
         ;;
-    * | -h)
+    --help | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
                 > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] [ --output <output directory>\n
@@ -376,7 +381,7 @@ while [ $# -gt 0 ]; do
                     --idx : genome index file created from BWA
                     --bqsr_ref : Population VCF file from dbSNP
                     --cpus : No. of CPUs to provide in process
-                    --gatk_mem : Memory allocation for GATK tools
+                    --gatk_mem : Memory allocation for GATK tools (in GB)
                     --conda_env : Activate the conda environment containing the tools
                     --output : Output directory to store results"
 

@@ -39,7 +39,7 @@ BUILD_DIR() {
     vcf_data=$output/VCF_DATA
     logs_dir=$output/LOG_FILES
     temp=$output/TEMP # To be deleted at the end of the pipeline
-    mkdir -p $output # Somatic variant calling reports and files output directory
+    mkdir -p $output # output reports and files directory
     mkdir -p $bam_data # Storing BAM files
     mkdir -p $prep_reports # Storing preprocessing reports
     mkdir -p $vcf_data # Storing unfiltered and filtered VCF files

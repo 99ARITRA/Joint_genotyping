@@ -13,19 +13,13 @@ BOLD_PURPLE='\033[1;35m'
 BOLD_CYAN='\033[1;36m'
 NC='\033[0m'
 
-# ----------------------------------------------- #
-## PIPELINE ENVIRONNMENT ACTIVATION
-# ----------------------------------------------- #
-CONDA_ACTIVATION() {
-    source $HOME/miniforge3/etc/profile.d/conda.sh
-    conda activate $conda_env
-}
+
 # ----------------------------------------------- #
 ## LOG REPORTS
 # ----------------------------------------------- #
 LOGS() {
     processLog=$logs_dir/process.log
-    $1 2>&1 | tee -a $processLog
+    $1 2>> $processLog | tee -a 
     echo -e "\n" >> $processLog
 }
 
@@ -55,9 +49,8 @@ READ_ALIGNMENT() {
     echo -e "${BOLD_BLUE}>>> STEP-1 -->>> Mapping | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
     if [[ ! -f $bam_data/${sample}_bqsr.bam ]]; then
         echo -e "${BOLD_YELLOW} Mapping to genome ${BOLD_GREEN}$(basename $fasta .fa) ${NC}\n"
-
-        bwa-mem2 mem -v 1 -t $threads $index { } { } | sambamba view -S -f bam -l 0 -t $threads -p /dev/stdin | \
-        sambamba sort -m 450MB -t $threads -l 0 -p -o $bam_data/${.}_mapped_sorted.bam /dev/stdin
+        bwa-mem2 mem -v 1 -R ${sample} -t $threads $index $R1 $R2 | sambamba view -S -f bam -l 0 -t $threads -p /dev/stdin | \
+        sambamba sort -m 450MB -t $threads -l 0 -p -o $bam_data/${sample}_mapped_sorted.bam /dev/stdin
         # --------------------------------------------------------------- #
         echo -e "${BOLD_YELLOW} Indexing BAM${NC}\n"
         sambamba index -t $threads -p $bam_data/${sample}_mapped_sorted.bam
@@ -73,15 +66,9 @@ READ_ALIGNMENT() {
 ## STEP-2: BAM PROCESSING
 # ----------------------------------------------- #
 
-READ_GROUPS_ADDITION() {
-    echo -e "${BOLD_CYAN} Adding Read Groups${NC}\n"
-    gatk --java-options "-Xmx${memo}g" AddOrReplaceReadGroups -I $bam_data/${sample}_mapped_sorted.bam -O $bam_data/${sample}_rg.bam \
-        --RGID rg_${sample}   --RGPL illumina  --RGSM ${sample}  --RGPU unit_${sample} --RGLB lib_${sample} -SO coordinate --VERBOSITY ERROR
-}
-# ---------------------------------------------------------------------------------------- #
 DEDUPLICATION() {
     echo -e "${BOLD_CYAN} Mark and remove Duplicates${NC}\n"
-    sambamba markdup -r -t $threads -p $bam_data/${sample}_rg.bam /dev/stdout | \
+    sambamba markdup -r -t $threads -p  $bam_data/${sample}_mapped_sorted.bam /dev/stdout | \
     sambamba sort -m 450MB -t $threads -l 9 -p -o $bam_data/${sample}_deduplicated_sorted.bam /dev/stdin
     # --------------------------------------------------------------- #    
     sambamba index -t $threads -p $bam_data/${sample}_deduplicated_sorted.bam
@@ -110,13 +97,20 @@ BASE_QUAL_SCORE_RECAL_2() {
 PROCESS_BAM() {
     echo -e "${BOLD_BLUE}>>> STEP-2 -->>> BAM file manipulation  | SAMPLE: ${BOLD_PURPLE}$sample ${NC} \n"
     if [[ ! -f $bam_data/${sample}_bqsr.bam ]]; then
-        READ_GROUPS_ADDITION # Manipulate BAM records with sample read groups
         DEDUPLICATION # Mark and remove PCR and optical duplicates
         BASE_QUAL_SCORE_RECAL_1 # Generate BQSR table
         BASE_QUAL_SCORE_RECAL_2 # Recalibrate Base quality scores
     else
         echo -e "${BOLD_RED}Skipping BAM PROCESSING step${NC}\n"
     fi
+}
+
+# ----------------------------------------------- #
+## STEP-3: TEXT FILE WITH PATH TO TRIO BAM FILES
+# ----------------------------------------------- #
+
+TRIPLE_BAM() {
+    find $bam_data -type f -name *_bqsr.bam -exec realpath {} \; > $bam_data/trio_bams.txt
 }
 
 
@@ -144,6 +138,8 @@ NGS_PROCESSING() {
         # ----------------------------------------------- #
         PROCESS_BAM
     done
+    # ----------------------------------------------- #
+    TRIPLE_BAM
 }
 
 
@@ -152,34 +148,12 @@ NGS_PROCESSING() {
 # ----------------------------------------------- #
 
 GERMLINE_CALLER() {
-    for bam in $(ls $bam_data/*_bqsr.bam); do
-        sample=$(basename $bam _bqsr.bam)
-        echo -e "${BOLD_YELLOW} Germline variant calling | SAMPLE: ${BOLD_PURPLE}$sample ${NC}\n"
-        gatk --java-options "-Xmx${memo}g" HaplotypeCaller -R $fasta \
-                    -I $bam \
-                    -O $vcf_data/${sample}_germline.g.vcf.gz \
-                    -ERC GVCF --verbosity ERROR
-    done
-}
-# ----------------------------------------------- #
-GVCFS_COMBINER() {
-    gvcfs=( $vcf_data/*_germline.g.vcf.gz )
+    echo -e "${BOLD_YELLOW} Germline variant calling"
+    freebayes -f $fasta --gvcf -p 2 --genotype-qualities -m 30 -q 20 -L $bam_data/trio_bams.txt > $vcf_data/joint_genotyped_trio.vcf
     # ----------------------------------------------- #
-    echo -e "${BOLD_YELLOW} Combining GVCFs:\n ${BOLD_GREEN}$(ls $vcf_data/*_germline.g.vcf.gz) ${NC} \n"
-    gatk --java-options "-Xmx${memo}g" CombineGVCFs -R $fasta \
-                    -V ${gvcfs[0]} \
-                    -V ${gvcfs[1]} \
-                    -V ${gvcfs[2]} \
-                    -O $vcf_data/germline_trio.g.vcf.gz --verbosity ERROR
-}
-# ----------------------------------------------- #
-GVCF_GENOTYPER() {
-    echo -e "${BOLD_YELLOW} Genotyping Trio VCF ${NC}\n"
-    gatk --java-options "-Xmx${memo}g" GenotypeGVCFs -R $fasta \
-                    -V $vcf_data/germline_trio.g.vcf.gz \
-                    -O $vcf_data/joint_genotyped_trio.vcf.gz --verbosity ERROR
+    bgzip -f -@ $threads $vcf_data/joint_genotyped_trio.vcf
     # ----------------------------------------------- #
-    gatk --java-options "-Xmx${memo}g" IndexFeatureFile -I $vcf_data/joint_genotyped_trio.vcf.gz
+    tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_trio.vcf.gz
 }
 
 # ----------------------------------------------- #
@@ -211,8 +185,6 @@ JOINT_GENOTYPING() {
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
     if [[ ! -f $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz ]]; then
         GERMLINE_CALLER # Call germline variants from each sample
-        GVCFS_COMBINER # Combine the sample VCFs
-        GVCF_GENOTYPER # Combined VCF genotyping
         NORMALIZE_VCF # VCF processing
     else
         echo -e "${BOLD_RED} Genotyped GVCF is normalized ${NC}\n"
@@ -223,22 +195,14 @@ JOINT_GENOTYPING() {
 # ----------------------------------------------- #
 ## STEP-5: VARIANT FILTRATION
 # ----------------------------------------------- #
-# HARD FILTERS FOR HAPLOTYPECALLER OUTPUT
-FILTER_VCF() {
-    echo -e "${BOLD_CYAN} Filtering out germline variants with low depth, low genotype quality and low quality-by-depth${NC}\n"
-    gatk --java-options "-Xmx${memo}g" FilterVcf -R $fasta -I $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz \
-                                            -O $vcf_data/joint_genotyped_flagged.vcf.gz \
-                                            --MIN_DP 40 \
-                                            --MIN_QD 2 \
-                                            --MIN_GQ 60 \
-                                            --VERBOSITY ERROR
-}
-# ----------------------------------------------- #
+
 SELECT_VARIANTS() {
     echo -e "${BOLD_CYAN} Eliminating variants with low variant quality, mapping quality${NC}\n"
-    bcftools filter -i 'FILTER="PASS" && QUAL>60 && INFO/MQ>40' -o $vcf_data/joint_genotyped_first_pass.vcf.gz -Oz $vcf_data/joint_genotyped_flagged.vcf.gz
+    bcftools filter -i '(QUAL>0) && INFO/DP>10' -o $vcf_data/joint_genotyped_first_pass.vcf.gz \
+                        -Oz $vcf_data/joint_genotyped_trio_fill-tags.vcf.gz
     # ----------------------------------------------- #
-    bcftools filter -e '(FORMAT/GT[0]="hom" | FORMAT/GT[0]="mis") || FORMAT/GT[1]="mis" || FORMAT/GT[2]="mis"' -o $vcf_data/joint_genotyped_second_pass.vcf.gz -Oz $vcf_data/joint_genotyped_first_pass.vcf.gz
+    bcftools filter -e '(FORMAT/GT[1]="hom" | FORMAT/GT[1]="mis") || FORMAT/GT[0]="mis" || FORMAT/GT[2]="mis"' -o $vcf_data/joint_genotyped_second_pass.vcf.gz \
+                        -Oz $vcf_data/joint_genotyped_first_pass.vcf.gz
     # ----------------------------------------------- #
     tabix -f --threads $threads -p vcf $vcf_data/joint_genotyped_second_pass.vcf.gz
     # ----------------------------------------------- #
@@ -248,23 +212,37 @@ SELECT_VARIANTS() {
     echo -e "${BOLD_BLUE}---------------------------------------------------------------------------------------${NC}\n"
 }
 
+
+## --------------------------------------------------------------------------------------------------- #
+## WORKFLOW-3: VARIANT FILTRATION
+# -------------------------------------------------------------------------------------------------- #
+
+GERMLINE_FILTRATION() {
+    echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
+    SELECT_VARIANTS # Filtering high quality variants
+}
+
+
 # ----------------------------------------------- #
 ## STEP-6: VARIANT ANNOTATION
 # ----------------------------------------------- #
-# CONVERTING VCF TO TSV FORMAT
-TABULATION() {
-    echo -e "${BOLD_CYAN} Tabulating VCF${NC}\n"
-    gatk --java-options "-Xmx${memo}g" VariantsToTable -V $vcf_data/joint_genotyped_second_pass.vcf.gz \
-                                                    -O $vcf_data/High-confidence_variants.tsv \
-                                                    -F CHROM -F POS -F REF -F ALT -GF GT
+
+CLINVAR() {
+    echo -e "${BOLD_CYAN} Annotating VCF | ${BOLD_PURPLE}$(grep "file" $clinToml) ${NC}\n"
+    vcfanno -p $threads -lua $clinLua $clinToml \
+                                $vcf_data/joint_genotyped_second_pass.vcf.gz > $vcf_data/joint_genotyped_annotated.vcf
 }
 # ---------------------------------------------------- #
-FUNCOTATOR() {
-    echo -e ""
+TABULATION() {
+    echo -e "${BOLD_CYAN} Tabulating VCF${NC}\n"
+    gatk --java-options "-Xmx${memo}g" VariantsToTable -V $vcf_data/joint_genotyped_annotated.vcf \
+                                                    -O $vcf_data/High-confidence_variants.tsv \
+                                                    -F CHROM -F POS -F ID -F REF -F ALT -GF GT \
+                                                    -F CLNSIG -F CLNHGVS -F CLNDN -F CLNDISDB -F GENEINFO
 }
 
 # --------------------------------------------------------- #
-## STEP-6: MOVE AND REMOVE THE TEMPORARY FILES
+## STEP-7: MOVE AND REMOVE THE TEMPORARY FILES
 # --------------------------------------------------------- #
 
 TEMP_FILES() {
@@ -274,22 +252,21 @@ TEMP_FILES() {
     mv $vcf_data/*_germline.g.vcf.gz* $temp
     mv $vcf_data/germline_trio.g.vcf.gz* $temp
     mv $vcf_data/joint_genotyped_trio.vcf.gz* $temp
-    mv $vcf_data/joint_genotyped_first_pass.vcf.gz $temp      
+    # mv $vcf_data/joint_genotyped_first_pass.vcf.gz $temp      
     # --------------------------------------------------------- #
     rm -r $temp  
 }
 
 
 ## --------------------------------------------------------------------------------------------------- #
-## WORKFLOW-3: VARIANT FILTRATION
+## WORKFLOW-4: VARIANT ANNOTATION
 # -------------------------------------------------------------------------------------------------- #
 
-GERMLINE_FILTRATION() {
-    echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Germline Variant Filtration ${NC}\n"
-    FILTER_VCF # Applying Hard filters to germline variants
-    SELECT_VARIANTS # Filtering high quality variants
+VARIANT_ANNOTATION() {
+    echo -e "${BOLD_BLUE}>>> STEP 4 -->>> Variant Annotation ${NC}\n"
+    CLINVAR # Annotate VCF with ClinVar database information
     TABULATION # Create table from VCF file
-    TEMP_FILES # Remove intermediate files
+    # TEMP_FILES # Remove intermediate files
 }
 
 
@@ -305,6 +282,7 @@ JG_PIPELINE() {
     LOGS "NGS_PROCESSING" # Workflow-1: Preprocessing of NGS data
     LOGS "JOINT_GENOTYPING" # Workflow-2: Joint Genotyping of three samples
     LOGS "GERMLINE_FILTRATION" # Workflow-3: Germline Variant Filtration
+    LOGS "VARIANT_ANNOTATION" # Workflow-4: Germline Variant Annotation
     echo -e "${BOLD_RED} Intermediate files have been removed ${NC} \n"
 }
 
@@ -315,15 +293,16 @@ JG_PIPELINE() {
 if [ $# -eq 0 ]; then
     echo -e "Please provide the following arguments
             COMMAND............
-            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] [ --output <output directory>\n
+            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --output <output directory> ] \n
                  PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
                     --idx : genome index file created from BWA-MEM2
                     --bqsr_ref : Population VCF file from dbSNP
+                    --clinvar_lua: lua file for ClinVar annotation
+                    --clinvar_toml:toml file for ClinVar annotation
                     --cpus : No. of CPUs to provide in process
                     --gatk_mem : Memory allocation for GATK tools
-                    --conda_env : Initiate the conda environment containing the tools
                     --output : Output directory to store results"
     exit 1
 fi
@@ -350,6 +329,16 @@ while [ $# -gt 0 ]; do
         bqsr_ref=$1 # Population VCF file requried in BQSR step
         shift
         ;;
+    --clinvar_lua)
+        shift
+        clinLua=$1
+        shift
+        ;;
+    --clinvar_toml)
+        shift
+        clinToml=$1
+        shift
+        ;;
     --cpus)
         shift
         threads=$1 # No. of CPUs required in pipeline
@@ -360,12 +349,6 @@ while [ $# -gt 0 ]; do
         memo=$1 # Memory allocated for GATK Tools
         shift
         ;;
-    --conda_env)
-        shift
-        conda_env=$1
-        CONDA_ACTIVATION
-        shift
-        ;;
     --output)
         shift
         results=$1
@@ -374,15 +357,16 @@ while [ $# -gt 0 ]; do
     --help | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
-                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index>] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --conda_env <env_name> ] [ --output <output directory>\n
+                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --bqsr_ref <Population VCF file> ]  [ --cpus <cpus> ] [ --gatk_mem <memory in GB> ] [ --output <output directory> ] \n
                     PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
                     --idx : genome index file created from BWA
                     --bqsr_ref : Population VCF file from dbSNP
+                    --clinvar_lua: lua file for ClinVar annotation
+                    --clinvar_toml:toml file for ClinVar annotation
                     --cpus : No. of CPUs to provide in process
                     --gatk_mem : Memory allocation for GATK tools (in GB)
-                    --conda_env : Activate the conda environment containing the tools
                     --output : Output directory to store results"
 
         exit 1

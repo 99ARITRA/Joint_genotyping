@@ -8,7 +8,7 @@ def merge_tables(tab1, tab2, otab):
                 "ANN[*].EFFECT": "EFFECT", "ANN[*].IMPACT": "IMPACT", "ANN[*].GENE": "GENE", 
                 "ANN[*].GENEID": "GENEID", "ANN[*].FEATURE": "FEATURE", 
                 "ANN[*].FEATUREID": "FEATUREID", "ANN[*].HGVS_C": "CHROMOSOME_HGVS", "ANN[*].HGVS_P": "PROTEIN_HGVS",
-                "CLNSIG": "CLINICAL_SIGNIFICANCE", "CLNHGVS": "CLINVAR_HGVS", "CLNDN": "CLINVAR_DISEASE_NAME"}
+                "CLNSIG": "CLINICAL_SIGNIFICANCE", "CLNHGVS": "CLINVAR_HGVS", "AF_EXAC": "EXAC_ALLELE_FREQUENCY", "ORIGIN": "VARIANT_TYPE" }
     mtab= mtab.fillna("-")
     mtab.rename(columns= new_cols, inplace= True)
     mtab.to_csv(otab, sep= "\t", index= False)

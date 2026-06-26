@@ -1,38 +1,25 @@
 # Joint genotyping
 
-This is a project on joint genotyping using NGS tools on a father, mother and proband sample for identification of variants related to Osteopertrosis. The analysis method was adapted from a Galaxy tutorial project on the disease.
+This is a project on joint genotyping of a father, mother and proband WES sample for identification of variants related to a genetic disorder in the proband. The analysis method was adapted from the  Galaxy tutorial project <https://training.galaxyproject.org/training-material/topics/variant-analysis/tutorials/exome-seq/tutorial.html>.
 
 ## Tools used
 
-- BWA-MEM / BWA-MEM 2
-- SAMTOOLS/ SAMBAMBA
-- GATK BAM PROCESSING TOOLS
-  - ADDORREPLACEREADGROUPS
-  - MARKDUPLICATES
-  - BASEQUALITYSCORERECALIBRATION
-  - APPLYBQSR
-- VARIANT CALLING
-  - HAPLOTYPECALLER (GVCF MODE)
-  - COMBINEGVCFS
-  - GENOTYPEGVCFS
-- VCF PROCESSING
-  - BCFTOOLS NORM
-  - BCFTOOLS FILLTAGS
-- VARIANT FILTRATION
-  - GATK VARIANTFILTRATION/ GATK FILTERVCFS
+- BWA-MEM 2 (MAPPING)
+- SAMBAMBA (BAM FILE PROCESSING)
+- FREEBAYES ( JOINT VARIANT CALLING)
+- BCFTOOLS (VCF FILE PROCESSING)
+- SNPEFF (VARIANT ANNOTATION)
+- VCFANNO (VARIANT ANNOTATION)
 
 ## Installation instructions
 
-  1. Download the conda executable ` wget https://github.com/conda-forge/miniforge/releases/download/25.11.0-1/Miniforge3-Linux-x86_64.sh `
-  2. Change permissions ` chmod 777 Miniforge3-Linux-x86_64.sh `
-  3. Run `./Miniforge3-Linux-x86_64.sh`
-  4. Set up the conda environment.
-  5. Create a new conda environment ` conda create -n < envname > `
-  6. Install the tools `mamba install bwa-mem samtools gatk4 bcftools sambamba bwa-mem2`
-  7. Download the repo ` git clone https://github.com/99ARITRA/Joint_genotyping.git `
-  8. Navigate to the directory in terminal and run the script as shown below.
+  1. Download Pixi: ` curl -fsSL https://pixi.sh/install.sh | sh `
+  2. Add the following to ~/.bashrc: `eval "$(pixi completion --shell bash)"` to enable autocompletion. Restart the shell.
+  3. Install the tools using Pixi: `pixi global install <tool_name>`
+  4. Download the repo: ` git clone https://github.com/99ARITRA/Joint_genotyping.git `
+  5. Navigate to the directory "Joint_genotyping" in terminal and run the script as shown below.
 
 ## Pipeline execution
 
  To execute the bash script type the following commands in a linux terminal or WSL terminal:
- `bash germline_VC.sh`
+ `bash joint_genotyping.sh`

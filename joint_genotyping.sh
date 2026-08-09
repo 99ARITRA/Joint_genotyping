@@ -22,7 +22,7 @@ NC='\033[0m'
 # ----------------------------------------------- #
 
 BUILD_DIR() {
-    output="JG_OUTPUT"/$cohort
+    output=/output/"JG_OUTPUT"/$cohort
     bam_data=$output/BAM_DATA
     prep_reports=$output/PREPROCESSING_REPORTS
     vcf_data=$output/VCF_DATA
@@ -98,10 +98,10 @@ TRIPLE_BAM() {
 # ------------------------------------------------------------------------------------------------------------ #
 
 NGS_PROCESSING() {       
-    echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}"
-    echo -e "${BOLD_PURPLE}SAMPLE METADATA:"
-    echo -e "${BOLD_GREEN}$(column -t -s "," $sample_sheet)"
-    echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}\n"    
+#     echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}"
+#     echo -e "${BOLD_PURPLE}SAMPLE METADATA:"
+#     echo -e "${BOLD_GREEN}$(column -t -s "," $sample_sheet)"
+#     echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}\n"    
     
     sampleList=$(tail -n +2 $sample_sheet)
 
@@ -135,7 +135,7 @@ GERMLINE_CALLER() {
     # ----------------------------------------------- #
     bgzip -f -@ $threads $trioVcf
     # ----------------------------------------------- #
-    tabix -f --threads $threads -p vcf $trioVcf.gz
+    tabix -f -p vcf $trioVcf.gz
 }
 
 # ----------------------------------------------- #
@@ -148,7 +148,7 @@ NORMALIZE_VCF() {
     # ----------------------------------------------- #
     bcftools +fill-tags --threads $threads -o $ftVcf -Oz $normVcf
     # ----------------------------------------------- #
-    tabix -f --threads $threads -p vcf $ftVcf
+    tabix -f -p vcf $ftVcf
     # ----------------------------------------------- #
     echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}\n"
     count_vcf=$(bcftools view -H $ftVcf | wc -l)
@@ -169,7 +169,7 @@ FILTER_VCF() {
     bcftools filter -e '(FORMAT/GT[2]="hom" | FORMAT/GT[2]="mis") || FORMAT/GT[0]="mis" || FORMAT/GT[1]="mis"' -o $filtVcf2 \
                         -Oz $filtVcf1
     # ----------------------------------------------- #
-    tabix -f --threads $threads -p vcf $filtVcf2
+    tabix -f -p vcf $filtVcf2
 }
 
 
@@ -214,8 +214,10 @@ SNPEFF() {
 }
 # ---------------------------------------------------- #
 CLINVAR() {
+    clinvarLua="clinvar.lua"
+    clinvarToml="clinvar.toml"
     echo -e "${BOLD_YELLOW} Annotating VCF |${BOLD_PURPLE} ClinVar${NC}\n"
-    vcfanno -p $threads -lua $clinLua $clinToml \
+    vcfanno -p $threads -lua $clinvarLua $clinvarToml \
                                 $annotVcf3 > $annotVcf4
 }
 # ---------------------------------------------------- #
@@ -294,7 +296,7 @@ JG_PIPELINE() {
 if [ $# -eq 0 ]; then
     echo -e "Please provide the following arguments
             COMMAND............
-            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --dbsnp <Population VCF file> ]  [ --cpus <cpus> ] [ --mem <memory in GB> ] [ --output <output directory> ] \n
+            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --dbsnp <Population VCF file> ]  [ --cpus <cpus> ] [ --mem <memory in GB> ]\n
                  PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
@@ -335,14 +337,9 @@ while [ $# -gt 0 ]; do
         dbsnp=$1 # Population VCF file requried in BQSR step
         shift
         ;;
-    --clinvar_lua)
+    --clinvar)
         shift
-        clinLua=$1
-        shift
-        ;;
-    --clinvar_toml)
-        shift
-        clinToml=$1
+        clinvar=$1 # ClinVar VCF file required in annotation step
         shift
         ;;
     --cpus)
@@ -358,7 +355,7 @@ while [ $# -gt 0 ]; do
     --help | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
-                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --dbsnp <Population VCF file> ]  [ --cpus <cpus> ] [ --mem <memory in GB> ] [ --output <output directory> ] \n
+                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --dbsnp <Population VCF file> ]  [ --cpus <cpus> ] [ --mem <memory in GB> ]\n
                     PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format

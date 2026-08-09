@@ -1,5 +1,5 @@
 [[annotation]]
-file="/mnt/d/Bioinformatics/NGS/GENOMICS/Joint_genotyping/refs/process_files/clinvar_20260530.vcf.gz"
+file="/process_files/clinvar_20260530.vcf.gz"
 fields = ["AF_EXAC","CLNSIG","CLNHGVS"]
 names = ["AF_EXAC","CLNSIG","CLNHGVS"]
 ops=["self","self","self"]

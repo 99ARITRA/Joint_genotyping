@@ -296,15 +296,14 @@ JG_PIPELINE() {
 if [ $# -eq 0 ]; then
     echo -e "Please provide the following arguments
             COMMAND............
-            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --dbsnp <Population VCF file> ]  [ --cpus <cpus> ] [ --mem <memory in GB> ]\n
+            > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --annGenome <genome version for variant annotation> ]  [ --dbsnp <Population VCF file> ] [ --clinvar <ClinVar VCF file> ] [ --cpus <cpus> ] [ --mem <memory in GB> ]\n
                  PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
                     --idx : genome index file created from BWA-MEM2
                     --annGenome : Specify the genome version for SnpEff annotation
                     --dbsnp : Population VCF file from dbSNP
-                    --clinvar_lua: lua file for ClinVar annotation
-                    --clinvar_toml:toml file for ClinVar annotation
+                    --clinvar : ClinVar VCF file required in annotation step
                     --cpus : No. of CPUs to provide in process
                     --mem : Memory allocation for GATK tools"
     exit 1
@@ -355,15 +354,14 @@ while [ $# -gt 0 ]; do
     --help | -h)
         echo -e "Wrong argument entered........\n
                 COMMAND............
-                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [ --dbsnp <Population VCF file> ]  [ --cpus <cpus> ] [ --mem <memory in GB> ]\n
+                > bash joint_genotyping.sh [ --samples <samplesheet.csv> ] [ --ref <FASTA file> ] [ --idx <genome index> ] [--annGenome <genome version for variant annotation>] [ --dbsnp <Population VCF file> ] [--clinvar <ClinVar VCF file>] [ --cpus <cpus> ] [ --mem <memory in GB> ]\n
                     PIPELINE PARAMETERS:
                     --samples : CSV file containing sample name,forward_fastq,reverse_fastq
                     --ref : reference genome file in FASTA format
                     --idx : genome index file created from BWA
                     --annGenome : Specify the genome version for SnpEff annotation
                     --dbsnp : Population VCF file from dbSNP
-                    --clinvar_lua: lua file for ClinVar annotation
-                    --clinvar_toml:toml file for ClinVar annotation
+                    --clinvar : ClinVar VCF file required in annotation step
                     --cpus : No. of CPUs to provide in process
                     --mem : Memory allocation for GATK tools (in GB)"
         exit 1

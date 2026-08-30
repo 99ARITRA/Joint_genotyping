@@ -166,7 +166,7 @@ FILTER_VCF() {
                         -Oz $ftVcf
     # ----------------------------------------------- #
     echo -e "${BOLD_YELLOW} Filtering variants based on ${BOLD_PURPLE}Genotype${NC}\n"
-    bcftools filter -e '(FORMAT/GT[2]="hom" | FORMAT/GT[2]="mis") || FORMAT/GT[0]="mis" || FORMAT/GT[1]="mis"' -o $filtVcf2 \
+    bcftools filter -e 'FORMAT/GT[2]="mis" || FORMAT/GT[0]="mis" || FORMAT/GT[1]="mis"' -o $filtVcf2 \
                         -Oz $filtVcf1
     # ----------------------------------------------- #
     tabix -f -p vcf $filtVcf2

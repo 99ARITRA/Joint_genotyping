@@ -170,6 +170,8 @@ FILTER_VCF() {
                         -Oz $filtVcf1
     # ----------------------------------------------- #
     tabix -f -p vcf $filtVcf2
+    # ----------------------------------------------- #
+    bcftools stats -F $fasta -s - $filtVcf2 > $prep_reports/${filtVcf2}.stats
 }
 
 

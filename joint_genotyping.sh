@@ -98,10 +98,10 @@ TRIPLE_BAM() {
 # ------------------------------------------------------------------------------------------------------------ #
 
 NGS_PROCESSING() {       
-#     echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}"
-#     echo -e "${BOLD_PURPLE}SAMPLE METADATA:"
-#     echo -e "${BOLD_GREEN}$(column -t -s "," $sample_sheet)"
-#     echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}\n"    
+    echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}"
+    echo -e "${BOLD_PURPLE}SAMPLE METADATA:"
+    echo -e "${BOLD_GREEN}$(column -t -s "," $sample_sheet)"
+    echo -e "${BOLD_CYAN}===============================================================================================================================================================================================${NC}\n"    
     
     sampleList=$(tail -n +2 $sample_sheet)
 
@@ -162,16 +162,17 @@ NORMALIZE_VCF() {
 
 FILTER_VCF() {
     echo -e "${BOLD_YELLOW} Filtering variants based on ${BOLD_PURPLE}Hard Filters${NC}\n"
-    bcftools filter -i '(QUAL>30) && INFO/DP>30' -o $filtVcf1 \
+    bcftools filter --threads $threads -i '(QUAL>30) && INFO/DP>30' -o $filtVcf1 \
                         -Oz $ftVcf
     # ----------------------------------------------- #
     echo -e "${BOLD_YELLOW} Filtering variants based on ${BOLD_PURPLE}Genotype${NC}\n"
-    bcftools filter -e 'FORMAT/GT[2]="mis" || FORMAT/GT[0]="mis" || FORMAT/GT[1]="mis"' -o $filtVcf2 \
+    bcftools filter --threads $threads -e 'FORMAT/GT[2]="mis" || FORMAT/GT[0]="mis" || FORMAT/GT[1]="mis"' -o $filtVcf2 \
                         -Oz $filtVcf1
     # ----------------------------------------------- #
     tabix -f -p vcf $filtVcf2
     # ----------------------------------------------- #
-    bcftools stats -F $fasta -s - $filtVcf2 > $prep_reports/${filtVcf2}.stats
+    echo -e "${BOLD_YELLOW} Generating VCF stats ${NC}\n"
+    bcftools stats -s - --threads $threads $filtVcf2 > $prep_reports/$(basename $filtVcf2 .gz).stats
 }
 
 
